@@ -9,6 +9,62 @@ export const api = axios.create({
   withCredentials: true,
 });
 
+// Auto-refresh access token on 401. If refresh fails, redirect to /login.
+let isRefreshing = false;
+let waitingQueue = [];
+
+function processQueue(error) {
+  waitingQueue.forEach(({ resolve, reject }) => {
+    if (error) reject(error);
+    else resolve();
+  });
+  waitingQueue = [];
+}
+
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const original = error.config || {};
+    const status = error.response?.status;
+    const url = original.url || "";
+    const isAuthEndpoint = url.includes("/auth/login") ||
+                           url.includes("/auth/register") ||
+                           url.includes("/auth/refresh") ||
+                           url.includes("/auth/logout");
+
+    if (status !== 401 || original._retry || isAuthEndpoint) {
+      return Promise.reject(error);
+    }
+
+    if (isRefreshing) {
+      return new Promise((resolve, reject) => {
+        waitingQueue.push({ resolve, reject });
+      }).then(() => {
+        original._retry = true;
+        return api(original);
+      });
+    }
+
+    original._retry = true;
+    isRefreshing = true;
+    try {
+      await api.post("/auth/refresh");
+      processQueue(null);
+      return api(original);
+    } catch (refreshErr) {
+      processQueue(refreshErr);
+      if (typeof window !== "undefined" &&
+          !window.location.pathname.startsWith("/login") &&
+          !window.location.pathname.startsWith("/register")) {
+        window.location.assign("/login");
+      }
+      return Promise.reject(refreshErr);
+    } finally {
+      isRefreshing = false;
+    }
+  }
+);
+
 // Format FastAPI error detail (which can be string, array, or object) into a display string.
 export function formatApiErrorDetail(detail) {
   if (detail == null) return "Something went wrong. Please try again.";

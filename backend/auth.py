@@ -107,6 +107,17 @@ def make_get_current_user(db):
     return get_current_user
 
 
+def _client_ip(request) -> str:
+    """Resolve the real client IP behind an ingress/proxy."""
+    fwd = request.headers.get("x-forwarded-for", "")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    real = request.headers.get("x-real-ip")
+    if real:
+        return real.strip()
+    return request.client.host if request.client else "unknown"
+
+
 # ---------- Brute-force protection ----------
 async def is_locked_out(db, identifier: str) -> bool:
     doc = await db.login_attempts.find_one({"identifier": identifier})

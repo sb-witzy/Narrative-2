@@ -233,15 +233,20 @@ async def register(payload: RegisterRequest, request: Request, response: Respons
 @auth_router.post("/login")
 async def login(payload: LoginRequest, request: Request, response: Response):
     email = payload.email.lower().strip()
-    ip = request.client.host if request.client else "unknown"
-    identifier = f"{ip}:{email}"
-    if await auth_mod.is_locked_out(db, identifier):
+    ip = auth_mod._client_ip(request)
+    identifier_ip = f"{ip}:{email}"
+    identifier_email = f"email:{email}"
+    # Lockout if either IP-based or email-only counter tripped
+    if (await auth_mod.is_locked_out(db, identifier_ip) or
+            await auth_mod.is_locked_out(db, identifier_email)):
         raise HTTPException(status_code=429, detail="Too many failed attempts. Try again in 15 minutes.")
     user = await db.users.find_one({"email": email})
     if not user or not auth_mod.verify_password(payload.password, user["password_hash"]):
-        await auth_mod.register_failed_attempt(db, identifier)
+        await auth_mod.register_failed_attempt(db, identifier_ip)
+        await auth_mod.register_failed_attempt(db, identifier_email)
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    await auth_mod.clear_login_attempts(db, identifier)
+    await auth_mod.clear_login_attempts(db, identifier_ip)
+    await auth_mod.clear_login_attempts(db, identifier_email)
     user_id = str(user["_id"])
     access = auth_mod.create_access_token(user_id, email)
     refresh = auth_mod.create_refresh_token(user_id)
