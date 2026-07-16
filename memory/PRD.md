@@ -20,20 +20,26 @@ Build a program that assists a dental office with insurance narrative writeups. 
 - `GET /api/history`, `GET /api/history/{id}`, `DELETE /api/history/{id}`
 
 ## What's Been Implemented (2026-02)
-- CDT procedure catalog with per-procedure radiograph advisor (Required / Recommended / Note)
-- AI narrative generation returning structured JSON (short + long) with claim-appropriate clinical language
-- Dashboard with procedure grouping, clinical detail form, live radiograph panel, copy-to-clipboard with toast + flash animation
-- History page with search, dialog viewer, delete, and copy buttons
-- No PHI stored — patient_label field is a free-form non-identifying tag
+### Iteration 1
+- CDT procedure catalog with per-procedure radiograph advisor
+- AI narrative generation (short + long) in claim-appropriate clinical language
+- Dashboard with procedure grouping, clinical detail form, live radiograph panel, copy-to-clipboard
+- History page with search, dialog viewer, delete
+
+### Iteration 2 (all previously P1/P2 items shipped)
+- **PDF & text export** for single narratives and full visit packets (`reportlab`-generated, one-file download)
+- **Multi-procedure visit generator** at `/bulk` — one patient, one carrier, one visit, N procedures, parallel LLM calls, single packet export
+- **Carrier-specific templates** for Generic / Delta / Cigna / MetLife / Aetna / BCBS (carrier field tunes the system prompt)
+- **Editable narratives + section-level regenerate** — inline textarea edit with autosave (PATCH) and per-field regenerate button
+- **Tooth-diagram picker** using Universal Numbering (adult 1–32 + primary A–T) with single or multi-select
 
 ## Prioritized Backlog (P0 → P2)
-- **P1:** PDF/text export of a narrative bundle for attaching to claim submissions
-- **P1:** Bulk-mode narrative generator for multiple procedures on the same visit
-- **P1:** Carrier-specific templates (Delta, Cigna, MetLife, BCBS) — different length/format preferences
-- **P2:** Editable narrative before saving (regenerate section only)
-- **P2:** Optional lightweight auth if multi-office/multi-user is needed later
-- **P2:** Tooth-diagram visual picker instead of free-text tooth number
-- **P2:** Attach radiograph filenames to a record for full "claim packet" tracking
+- **P2:** Cap concurrent LLM calls in bulk-visit generation (currently N-parallel)
+- **P2:** Robust JSON extraction from LLM (nested-brace resilient) or tool-format output
+- **P2:** Office branding: real logo + office name on exported PDFs (env-driven)
+- **P2:** Optional lightweight auth for multi-office/multi-user use
+- **P3:** Attach radiograph filenames/uploads to a record for full "claim packet" tracking
+- **P3:** Denial-appeal-letter generator (uses existing narrative + carrier denial reason)
 
 ## Next Tasks
 - Gather user feedback on generated narrative tone (formal vs conversational) and adjust system prompt if needed
