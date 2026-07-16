@@ -1,8 +1,16 @@
 import { Toaster } from "sonner";
 import { BrowserRouter, Routes, Route, NavLink } from "react-router-dom";
 import Dashboard from "@/pages/Dashboard";
+import BulkVisit from "@/pages/BulkVisit";
 import History from "@/pages/History";
 import "@/App.css";
+
+const navLinkClass = ({ isActive }) =>
+  `px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+    isActive
+      ? "bg-[hsl(var(--primary))] text-primary-foreground"
+      : "text-foreground/70 hover:text-foreground hover:bg-secondary"
+  }`;
 
 function Shell({ children }) {
   return (
@@ -21,31 +29,13 @@ function Shell({ children }) {
             </div>
           </div>
           <nav className="ml-auto flex items-center gap-1">
-            <NavLink
-              to="/"
-              end
-              data-testid="nav-dashboard"
-              className={({ isActive }) =>
-                `px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-                  isActive
-                    ? "bg-[hsl(var(--primary))] text-primary-foreground"
-                    : "text-foreground/70 hover:text-foreground hover:bg-secondary"
-                }`
-              }
-            >
-              Generate
+            <NavLink to="/" end data-testid="nav-dashboard" className={navLinkClass}>
+              Single
             </NavLink>
-            <NavLink
-              to="/history"
-              data-testid="nav-history"
-              className={({ isActive }) =>
-                `px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-                  isActive
-                    ? "bg-[hsl(var(--primary))] text-primary-foreground"
-                    : "text-foreground/70 hover:text-foreground hover:bg-secondary"
-                }`
-              }
-            >
+            <NavLink to="/bulk" data-testid="nav-bulk" className={navLinkClass}>
+              Visit packet
+            </NavLink>
+            <NavLink to="/history" data-testid="nav-history" className={navLinkClass}>
               History
             </NavLink>
           </nav>
@@ -65,6 +55,7 @@ export default function App() {
       <Shell>
         <Routes>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/bulk" element={<BulkVisit />} />
           <Route path="/history" element={<History />} />
         </Routes>
       </Shell>

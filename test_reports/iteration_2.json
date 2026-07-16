@@ -1,0 +1,36 @@
+{
+  "summary": "Full backend + frontend regression for Narrative.Rx iteration 2 (carrier tuning, section-level regenerate, PATCH edits, multi-procedure visit generator, PDF/TXT export, tooth picker). All 16 pytest cases pass. All Dashboard, BulkVisit, and History UI flows pass, including 200 responses with correct MIME types for every export path.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/iter2_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py: /api/regenerate has no response_model. Consider a small Pydantic model so the OpenAPI schema is accurate (works today but returns a bare dict).",
+    "server.py: /api/export/pdf accepts a raw dict (payload: dict). No validation of shape - a bad payload could crash reportlab (build_pdf handles missing keys with .get, so acceptable, but a Pydantic model would be safer).",
+    "narrative_service.py: response_text from LLM is parsed with a regex-then-json.loads. If Claude ever returns a JSON string with nested quotes/braces that don't match the first {..}, parsing could silently return partial content. Consider using a robust JSON parser or asking model for tool-format output.",
+    "Frontend Dashboard.jsx onExportPdf/Txt catch blocks swallow the actual error and only show a generic toast - okay for UX, but log the axios error in dev for easier debugging.",
+    "History dialog: DialogDescription now includes carrier/tooth/patient - good. But the carrier chip on the list card uses `bg-secondary` which has fairly low contrast against the card background; consider a colored pill by carrier (already using primary tint elsewhere).",
+    "BulkVisit.jsx: `carrier` state defaults to 'generic' but the CarrierSelect placeholder is 'Carrier...'. On first paint the select trigger correctly shows 'Generic'; no bug, but the visible default is fine.",
+    "Consider adding rate-limit or a concurrency cap on /api/visits/generate. Currently N procedures = N parallel Claude calls which can spike LLM costs and hit provider limits."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (new)"
+  ],
+  "success_rate": {"backend": "100% (16/16)", "frontend": "100%"},
+  "test_credentials": "n/a (no auth in app)",
+  "seed_data_creation": "Test-run created a handful of narratives with patient_label prefix TEST_ and TEST edited... narratives. Cleaned up post-run (9 records deleted).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend URL: REACT_APP_BACKEND_URL (dent-writeup-tool). Valid procedure codes list: D2740, D2750, D2950, D2543, D2644, D3310-D3330, D7140-D7240, D4341/D4342/D4910, D6010/D6057/D6058/D6240, D7952/D7953, D9944/D9945. Do NOT use D0210 or D2392 (not in catalog). LLM latency: single ~5-10s, visit with 2-3 procedures ~10-20s (parallel). Backend tests run via: cd /app && REACT_APP_BACKEND_URL=... python -m pytest backend/tests/backend_test.py -v. Testids: carrier-select, carrier-option-{key}, tooth-picker-open, tooth-picker-tooth-{n}, edit/save/regenerate/textarea-{testid} on NarrativeCard, export-pdf-btn / export-txt-btn, bulk-* on BulkVisit, dlg-* in History dialog, export-pdf-{id} icon on History cards.",
+  "rca of the issue": "No issues found - all specified features work as described."
+}
