@@ -53,20 +53,30 @@ def create_refresh_token(user_id: str) -> str:
     return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
 
 
-def set_auth_cookies(response, access_token: str, refresh_token: str) -> None:
+def set_auth_cookies(response, access_token: str, refresh_token: str, secure: bool = True) -> None:
     response.set_cookie(
         key="access_token", value=access_token, httponly=True,
-        secure=False, samesite="lax", max_age=ACCESS_MINUTES * 60, path="/",
+        secure=secure, samesite="lax", max_age=ACCESS_MINUTES * 60, path="/",
     )
     response.set_cookie(
         key="refresh_token", value=refresh_token, httponly=True,
-        secure=False, samesite="lax", max_age=REFRESH_DAYS * 24 * 3600, path="/",
+        secure=secure, samesite="lax", max_age=REFRESH_DAYS * 24 * 3600, path="/",
     )
 
 
 def clear_auth_cookies(response) -> None:
     response.delete_cookie("access_token", path="/")
     response.delete_cookie("refresh_token", path="/")
+
+
+def cookie_secure_for(request) -> bool:
+    """True for HTTPS requests (production), False for plain HTTP (local dev).
+    Trusts X-Forwarded-Proto since the app runs behind an ingress that terminates TLS.
+    """
+    xfp = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
+    if xfp:
+        return xfp == "https"
+    return request.url.scheme == "https"
 
 
 def _extract_token(request: Request, cookie_name: str = "access_token") -> str | None:

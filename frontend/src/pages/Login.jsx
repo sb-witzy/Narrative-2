@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
+import { Loader2, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,7 +12,10 @@ export default function Login() {
   const { login } = useAuth();
   const nav = useNavigate();
   const location = useLocation();
-  const from = location.state?.from || "/";
+  const [searchParams] = useSearchParams();
+  const reason = searchParams.get("reason");
+  const fromParam = searchParams.get("from");
+  const from = fromParam || location.state?.from || "/";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -55,6 +58,16 @@ export default function Login() {
           <p className="text-muted-foreground text-sm mb-6">
             Your narratives are scoped to your account only.
           </p>
+
+          {reason === "expired" && (
+            <div
+              data-testid="session-expired-banner"
+              className="flex items-start gap-2 text-sm bg-[hsl(var(--warning))]/15 border border-[hsl(var(--warning))]/40 text-foreground/90 rounded-md px-3 py-2 mb-5"
+            >
+              <Info className="h-4 w-4 mt-0.5 shrink-0 text-[hsl(var(--warning))]" />
+              <span>Your session timed out for security. Sign in again to pick up where you left off.</span>
+            </div>
+          )}
 
           <form onSubmit={onSubmit} className="space-y-5" data-testid="login-form">
             <div>

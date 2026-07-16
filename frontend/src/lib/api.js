@@ -56,7 +56,8 @@ api.interceptors.response.use(
       if (typeof window !== "undefined" &&
           !window.location.pathname.startsWith("/login") &&
           !window.location.pathname.startsWith("/register")) {
-        window.location.assign("/login");
+        const from = window.location.pathname + window.location.search;
+        window.location.assign(`/login?reason=expired&from=${encodeURIComponent(from)}`);
       }
       return Promise.reject(refreshErr);
     } finally {

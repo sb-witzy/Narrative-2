@@ -1,0 +1,40 @@
+{
+  "summary": "Iteration 6 re-verification of the user-reported bug 'Generate button makes you sign in and does not generate the narrative'. Verified all three fixes: (1) Secure cookie flag flips correctly based on request scheme via cookie_secure_for(request) — Secure=True on HTTPS public URL, Secure=False on plain HTTP localhost:8001, and Secure=True when X-Forwarded-Proto=https is injected against localhost; (2) Auth cookies from register/login/refresh all set Secure=True on the HTTPS preview URL (verified in browser via page.context.cookies() and via raw Set-Cookie header parsing); (3) Refresh-failure UX correctly redirects to /login?reason=expired&from=%2F and renders the amber session-expired-banner (data-testid=session-expired-banner) with copy 'Your session timed out for security…', and re-login honors the from param to return the user to '/'. Primary bug regression passes: after admin login the D2740 Generate button produces a 63-word Long Narrative with PDF/TXT export buttons visible and no redirect to /login. Full appeals + register smoke also pass. 9/9 pytest tests pass + 16/16 UI checks pass across two Playwright runs.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_iter6_test.py",
+    "/app/test_reports/pytest/iter6_results.xml"
+  ],
+  "action_items": [
+    "None. All three fixes for iteration 6 are working correctly. The reported user bug ('Generate makes you sign in') is fully resolved — Secure cookies are now honored by the browser on HTTPS, so the access_token cookie is persisted and /api/generate returns 200 on the first click after login."
+  ],
+  "critical_code_review_comments": [
+    "auth.py::cookie_secure_for(request) correctly prefers the X-Forwarded-Proto header (comma-split, lowercased, first value) before falling back to request.url.scheme. This is the right ordering behind an ingress that terminates TLS. Verified by hitting localhost:8001 directly with and without the header.",
+    "server.py::register/login/refresh_token all pass secure=cookie_secure_for(request) — no route was missed.",
+    "frontend/src/lib/api.js interceptor: refresh-failure redirect uses encodeURIComponent on window.location.pathname + window.location.search, so query strings and unicode paths are preserved. Correctly guards against redirecting when already on /login or /register.",
+    "Login.jsx: fromParam takes precedence over location.state?.from — this is the correct order because deep-linked redirects from the interceptor must win over stale navigation state.",
+    "Nit (not blocking): the isAuthEndpoint check in api.js relies on url.includes('/auth/login') etc. This is fine because these are the only endpoints whose 401 must NOT trigger a refresh attempt. But if any future non-auth endpoint has 'auth' in its path it would need re-review."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_iter6_test.py (new)",
+    "/app/test_reports/pytest/iter6_results.xml (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (9/9)",
+    "frontend": "100% (16/16 Playwright assertions across 4 flows: login+generate, cookie inspection, delete-access-only auto-refresh, delete-both refresh-failure UX + re-login return-to-from)"
+  },
+  "test_credentials": "admin@dental.com / admin123 (unchanged, seeded)",
+  "seed_data_creation": "One throwaway user per Playwright run in register smoke: TEST_iter6_<uuid>@example.com. Bounded by the 5/hr IP register rate limit; safe to re-run within reason.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend URL: https://dent-writeup-tool.preview.emergentagent.com. iter6 focus was cookie Secure attribute + refresh-failure UX. All pass. When testing generate endpoint contract from Python, remember: clinical_findings/radiographic_findings/etc are FREE-TEXT strings (Optional[str]), not lists. save_to_history (bool) is the correct field name, not 'save'. /api/appeals requires either narrative_id or a full narrative object plus denial_reason. Register endpoint is IP-rate-limited to 5/hr — use uuid-based emails and expect potential 429 skip if the IP is warm. Cookie Secure verification pattern: parse raw Set-Cookie header (requests joins multi-cookies with ', ' but our cookies don't set Expires so a comma-before-attribute regex split works). Playwright page.context.cookies() exposes the parsed 'secure' bool directly.",
+  "rca of the issue": "Root cause of the original bug (Iteration 5 aftermath): FastAPI's set_cookie was emitting Secure=False on cookies served over HTTPS because Python could not tell the request was HTTPS (TLS is terminated at the K8s ingress and the app sees plain HTTP on 8001). Some browser configurations (Chromium with strict cookie policies, private/incognito modes, or certain iOS/Safari builds) refuse to persist non-Secure cookies from an HTTPS response — the Set-Cookie was accepted for the login response but silently dropped for subsequent requests, so the very next /api/generate call went out with no access_token, returned 401, and the frontend interceptor redirected to /login. Fix: add cookie_secure_for(request) that reads X-Forwarded-Proto (the standard ingress header), and thread it through register/login/refresh via a new secure kwarg on set_auth_cookies. Verification: (a) raw Set-Cookie header parsing on the public URL shows 'Secure' present on both access_token and refresh_token; (b) Playwright page.context.cookies() reports secure=True; (c) end-to-end browser flow: login → click Generate → 200 → 63-word narrative rendered with PDF/TXT buttons — no redirect to /login. Additional UX polish also verified: on genuine refresh failure the interceptor redirects to /login?reason=expired&from=<original>, the amber banner renders, and after re-login the user lands back on the from path."
+}

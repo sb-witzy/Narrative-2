@@ -232,7 +232,7 @@ async def register(payload: RegisterRequest, request: Request, response: Respons
     user_id = str(doc["_id"])
     access = auth_mod.create_access_token(user_id, email)
     refresh = auth_mod.create_refresh_token(user_id)
-    auth_mod.set_auth_cookies(response, access, refresh)
+    auth_mod.set_auth_cookies(response, access, refresh, secure=auth_mod.cookie_secure_for(request))
     return _user_out(doc)
 
 
@@ -256,7 +256,7 @@ async def login(payload: LoginRequest, request: Request, response: Response):
     user_id = str(user["_id"])
     access = auth_mod.create_access_token(user_id, email)
     refresh = auth_mod.create_refresh_token(user_id)
-    auth_mod.set_auth_cookies(response, access, refresh)
+    auth_mod.set_auth_cookies(response, access, refresh, secure=auth_mod.cookie_secure_for(request))
     return _user_out(user)
 
 
@@ -287,7 +287,7 @@ async def refresh_token(request: Request, response: Response):
         raise HTTPException(status_code=401, detail="User not found")
     access = auth_mod.create_access_token(user_id, user["email"])
     refresh = auth_mod.create_refresh_token(user_id)
-    auth_mod.set_auth_cookies(response, access, refresh)
+    auth_mod.set_auth_cookies(response, access, refresh, secure=auth_mod.cookie_secure_for(request))
     return _user_out(user)
 
 
