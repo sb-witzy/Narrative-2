@@ -1,0 +1,26 @@
+{
+  "summary": "First-finish smoke test of Narrative.Rx dental claim assistant. Backend: /api/procedures returns 22 procedures with radiograph metadata; /api/generate with D2740 returns short+long narratives (252/693 chars) + radiographs and persists to history; invalid code returns 400; history list, get-by-id, delete, and 404-after-delete all pass. Frontend: dashboard loads, procedure select+grouping works, radiograph advisor updates before generation, generate flow renders both narratives with word counts, history page shows saved item, search works, dialog opens with dlg-copy buttons, delete removes item, and reset restores empty state.",
+  "tested_scope": ["backend", "frontend", "integration"],
+  "passed": [
+    "GET /api/procedures -> 200, 22 procedures with radiograph metadata",
+    "POST /api/generate D2740 -> 200 with id, short_narrative, long_narrative, radiographs, persisted",
+    "POST /api/generate invalid code -> 400",
+    "GET /api/history -> 200 with saved items",
+    "GET /api/history/{id} -> 200; DELETE -> 200; GET after delete -> 404",
+    "Dashboard: procedure-select populates and D2740 selectable",
+    "Radiograph panel shows Required PA (pre-op), Recommended BW/PA (post-prep), and carrier note before generation",
+    "Generate flow renders short and long narrative panels with word counts (~10s LLM latency)",
+    "Copy short button clickable (functional)",
+    "History page shows generated item; search filter works; dialog opens with dlg-copy-short/long; delete removes item",
+    "Reset (Clear) button restores empty-state on dashboard",
+    "Navigation: nav-dashboard and nav-history work"
+  ],
+  "failed": [],
+  "action_items": [
+    "Minor (non-blocking): sonner toast element was not detectable via generic [data-sonner-toast]/.toast selectors after copy-short click. Copy button itself works. Consider adding a data-testid on the toast if you want reliable QA, but functionality is fine.",
+    "Minor (a11y warning, non-blocking): React console warning 'Missing Description or aria-describedby for DialogContent' on history dialog. Add DialogDescription (or aria-describedby) to silence."
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "retest_needed": false,
+  "full_testing_deferred": true
+}

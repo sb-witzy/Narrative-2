@@ -1,56 +1,74 @@
-import { useEffect } from "react";
+import { Toaster } from "sonner";
+import { BrowserRouter, Routes, Route, NavLink } from "react-router-dom";
+import Dashboard from "@/pages/Dashboard";
+import History from "@/pages/History";
 import "@/App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import axios from "axios";
-import { HOME } from "@/constants/testIds";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
-
-const Home = () => {
-  const helloWorldApi = async () => {
-    try {
-      const response = await axios.get(`${API}/`);
-      console.log(response.data.message);
-    } catch (e) {
-      console.error(e, `errored out requesting / api`);
-    }
-  };
-
-  useEffect(() => {
-    helloWorldApi();
-  }, []);
-
+function Shell({ children }) {
   return (
-    <div>
-      <header className="App-header">
-        <a
-          data-testid={HOME.emergentLink}
-          className="App-link"
-          href="https://emergent.sh"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img src="https://avatars.githubusercontent.com/in/1201222?s=120&u=2686cf91179bbafbc7a71bfbc43004cf9ae1acea&v=4" />
-        </a>
-        <p className="mt-5">Building something incredible ~!</p>
+    <div className="min-h-screen bg-background text-foreground">
+      <header className="border-b border-border bg-card sticky top-0 z-40">
+        <div className="max-w-[1440px] mx-auto px-6 lg:px-10 py-4 flex items-center gap-8">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-[hsl(var(--primary))] text-primary-foreground grid place-items-center font-display font-black text-lg">
+              N
+            </div>
+            <div>
+              <div className="font-display font-extrabold text-lg leading-none tracking-tight">
+                Narrative<span className="text-[hsl(var(--primary))]">.</span>Rx
+              </div>
+              <div className="label-uppercase mt-1">Dental Claim Assistant</div>
+            </div>
+          </div>
+          <nav className="ml-auto flex items-center gap-1">
+            <NavLink
+              to="/"
+              end
+              data-testid="nav-dashboard"
+              className={({ isActive }) =>
+                `px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                  isActive
+                    ? "bg-[hsl(var(--primary))] text-primary-foreground"
+                    : "text-foreground/70 hover:text-foreground hover:bg-secondary"
+                }`
+              }
+            >
+              Generate
+            </NavLink>
+            <NavLink
+              to="/history"
+              data-testid="nav-history"
+              className={({ isActive }) =>
+                `px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                  isActive
+                    ? "bg-[hsl(var(--primary))] text-primary-foreground"
+                    : "text-foreground/70 hover:text-foreground hover:bg-secondary"
+                }`
+              }
+            >
+              History
+            </NavLink>
+          </nav>
+        </div>
       </header>
-    </div>
-  );
-};
-
-function App() {
-  return (
-    <div className="App">
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Home />}>
-            <Route index element={<Home />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
+      <main className="max-w-[1440px] mx-auto px-6 lg:px-10 py-8">{children}</main>
+      <footer className="max-w-[1440px] mx-auto px-6 lg:px-10 py-6 text-xs text-muted-foreground border-t border-border mt-8">
+        Narratives are AI-generated drafts for claim submission. Always verify against the patient chart before sending.
+      </footer>
     </div>
   );
 }
 
-export default App;
+export default function App() {
+  return (
+    <BrowserRouter>
+      <Shell>
+        <Routes>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/history" element={<History />} />
+        </Routes>
+      </Shell>
+      <Toaster position="bottom-right" richColors closeButton />
+    </BrowserRouter>
+  );
+}
