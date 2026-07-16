@@ -256,8 +256,12 @@ async def login(payload: LoginRequest, request: Request, response: Response):
     await auth_mod.clear_login_attempts(db, identifier_email)
     user_id = str(user["_id"])
     access = auth_mod.create_access_token(user_id, email)
-    refresh = auth_mod.create_refresh_token(user_id)
-    auth_mod.set_auth_cookies(response, access, refresh, secure=auth_mod.cookie_secure_for(request))
+    refresh = auth_mod.create_refresh_token(user_id, remember=payload.remember)
+    auth_mod.set_auth_cookies(
+        response, access, refresh,
+        secure=auth_mod.cookie_secure_for(request),
+        remember=payload.remember,
+    )
     return _user_out(user)
 
 

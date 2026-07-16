@@ -1,0 +1,33 @@
+{
+  "summary": "Iteration 9 re-tests the 'Remember this device' 30-day refresh cookie fix from iter 8. Backend-only re-run per main agent instructions. All 6 tests in /app/backend/tests/backend_iter8_test.py pass (6/6, previously 4/6). Verified: (a) login without remember → refresh cookie Max-Age=604800 (7d), JWT.remember=False; (b) login with remember=true → refresh cookie Max-Age=2592000 (30d), JWT.remember=True; (c) /api/auth/refresh preserves the remember flag on both branches (7d stays 7d, 30d stays 30d); (d) access_token cookie Max-Age remains ~1800s in every case; (e) regression admin login + end-to-end /api/generate narrative works with and without remember. Frontend was skipped (100% in iter 8, no changes).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_iter8_test.py",
+    "/app/test_reports/pytest/iter9_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py::login (lines 259-263) now correctly threads payload.remember into both create_refresh_token(remember=payload.remember) and set_auth_cookies(..., remember=payload.remember). This matches the refresh handler at lines 294-300 which reads remember from the JWT payload and propagates it identically.",
+    "server.py::register (line 235-236) is intentionally NOT remember-aware — new users get the default 7-day session. This is per spec.",
+    "auth.py implementation unchanged and verified via decoded JWTs: refresh_token payload contains type=refresh + remember=<bool>; Max-Age chosen from REMEMBER_DAYS=30 vs default 7 correctly."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "100% (6/6 pytest passing in 13.19s)",
+    "frontend": "not re-tested (100% in iter 8, unchanged)"
+  },
+  "test_credentials": "admin@dental.com / admin123 (seeded)",
+  "seed_data_creation": "None — used seeded admin.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Remember-me feature is fully working end-to-end. Backend test file kept at /app/backend/tests/backend_iter8_test.py — reusable regression for future iterations. To re-run: `pytest /app/backend/tests/backend_iter8_test.py -v` (REACT_APP_BACKEND_URL is auto-read from /app/frontend/.env). No pending work.",
+  "rca of the issue": "N/A — issue from iter 8 is resolved. Fix applied at /app/backend/server.py::login lines 259-263: `refresh = auth_mod.create_refresh_token(user_id, remember=payload.remember)` and `auth_mod.set_auth_cookies(response, access, refresh, secure=auth_mod.cookie_secure_for(request), remember=payload.remember)`. Verified via pytest + JWT payload decode + Set-Cookie header inspection."
+}
