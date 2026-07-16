@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
-  Copy, Trash2, ChevronRight, Search, Camera, Check, FileDown, FileText,
+  Copy, Trash2, ChevronRight, Search, Camera, Check, FileDown, FileText, Scale,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import NarrativeCard from "@/components/NarrativeCard";
+import AppealDialog from "@/components/AppealDialog";
 import {
   listHistory, deleteHistoryItem, updateHistoryItem, exportPdf, exportTxt,
 } from "@/lib/api";
@@ -25,6 +26,7 @@ export default function History() {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [appealFor, setAppealFor] = useState(null);
 
   const load = () => {
     setLoading(true);
@@ -187,7 +189,7 @@ export default function History() {
                 </DialogDescription>
               </DialogHeader>
 
-              <div className="flex gap-2 mt-3">
+              <div className="flex gap-2 mt-3 flex-wrap">
                 <Button size="sm" variant="outline" onClick={() => onExportPdf(selected)}
                   data-testid="dlg-export-pdf" className="rounded-full gap-1.5">
                   <FileDown className="h-3.5 w-3.5" /> Export PDF
@@ -195,6 +197,11 @@ export default function History() {
                 <Button size="sm" variant="outline" onClick={() => onExportTxt(selected)}
                   data-testid="dlg-export-txt" className="rounded-full gap-1.5">
                   <FileText className="h-3.5 w-3.5" /> Export TXT
+                </Button>
+                <Button size="sm" onClick={() => setAppealFor(selected)}
+                  data-testid="dlg-draft-appeal"
+                  className="rounded-full gap-1.5 bg-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/90 text-primary-foreground ml-auto">
+                  <Scale className="h-3.5 w-3.5" /> Draft appeal
                 </Button>
               </div>
 
@@ -250,6 +257,12 @@ export default function History() {
           )}
         </DialogContent>
       </Dialog>
+
+      <AppealDialog
+        open={!!appealFor}
+        onOpenChange={(o) => !o && setAppealFor(null)}
+        narrative={appealFor}
+      />
     </div>
   );
 }

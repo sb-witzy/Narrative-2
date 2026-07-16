@@ -236,3 +236,83 @@ def build_visit_txt(visit: dict) -> str:
         lines.append("=" * 60)
         lines.append(build_txt(rec))
     return "\n".join(lines)
+
+
+def build_appeal_pdf(appeal: dict, office_name: str = "Dental Office") -> bytes:
+    """Build a formal appeal letter PDF."""
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=LETTER,
+        leftMargin=0.9 * inch, rightMargin=0.9 * inch,
+        topMargin=0.75 * inch, bottomMargin=0.75 * inch,
+        title=f"Appeal Letter {appeal.get('id', '')[:8]}",
+    )
+    styles = _styles()
+    date_str = datetime.now().strftime("%B %d, %Y")
+    subtitle_parts = [f"{office_name}", f"Prepared {date_str}"]
+    if appeal.get("subject_line"):
+        subtitle_parts.append(appeal["subject_line"])
+    subtitle = " · ".join(subtitle_parts)
+    flow = _header(styles, title="Formal Claim Appeal Letter", subtitle=subtitle)
+
+    letter = appeal.get("letter") or ""
+    # Preserve paragraph breaks
+    for para in letter.split("\n\n"):
+        para = para.strip()
+        if not para:
+            continue
+        flow.append(Paragraph(para.replace("\n", "<br/>"), styles["body"]))
+        flow.append(Spacer(1, 6))
+
+    # Reference narrative footer
+    if appeal.get("procedure_code") or appeal.get("procedure_name"):
+        flow.append(Spacer(1, 12))
+        flow.append(HRFlowable(width="100%", thickness=0.5, color=BORDER, spaceBefore=4, spaceAfter=8))
+        flow.append(Paragraph("REFERENCE NARRATIVE", styles["h2"]))
+        meta_bits = []
+        if appeal.get("procedure_code"):
+            meta_bits.append(f"CDT {appeal['procedure_code']}")
+        if appeal.get("procedure_name"):
+            meta_bits.append(appeal["procedure_name"])
+        if appeal.get("tooth_number"):
+            meta_bits.append(f"Tooth #{appeal['tooth_number']}")
+        if appeal.get("carrier"):
+            meta_bits.append(f"Carrier: {appeal['carrier'].title()}")
+        flow.append(Paragraph(" · ".join(meta_bits), styles["small"]))
+        flow.append(Spacer(1, 6))
+        if appeal.get("original_long_narrative"):
+            flow.append(Paragraph(appeal["original_long_narrative"], styles["body"]))
+        if appeal.get("denial_reason"):
+            flow.append(Spacer(1, 6))
+            flow.append(Paragraph(f"<b>Carrier denial reason:</b> {appeal['denial_reason']}", styles["small"]))
+
+    doc.build(flow)
+    return buf.getvalue()
+
+
+def build_appeal_txt(appeal: dict) -> str:
+    parts = [
+        "FORMAL CLAIM APPEAL LETTER",
+        f"Generated: {datetime.now().strftime('%B %d, %Y %H:%M')}",
+    ]
+    if appeal.get("subject_line"):
+        parts.append(f"Subject: {appeal['subject_line']}")
+    parts.append("=" * 60)
+    parts.append("")
+    parts.append(appeal.get("letter") or "")
+    parts.append("")
+    if appeal.get("procedure_code"):
+        parts.append("-" * 60)
+        parts.append("REFERENCE NARRATIVE")
+        parts.append(f"CDT: {appeal.get('procedure_code', '')} — {appeal.get('procedure_name', '')}")
+        if appeal.get("tooth_number"):
+            parts.append(f"Tooth: #{appeal['tooth_number']}")
+        if appeal.get("carrier"):
+            parts.append(f"Carrier: {appeal['carrier'].title()}")
+        if appeal.get("original_long_narrative"):
+            parts.append("")
+            parts.append(appeal["original_long_narrative"])
+        if appeal.get("denial_reason"):
+            parts.append("")
+            parts.append(f"Carrier denial reason: {appeal['denial_reason']}")
+    return "\n".join(parts) + "\n"

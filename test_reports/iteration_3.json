@@ -1,0 +1,47 @@
+{
+  "summary": "Iteration 3 (auth + appeals + concurrency cap) tested end-to-end. Backend: 30/31 pytest cases pass. Frontend: login/logout/register redirect, protected route, header, History→Draft appeal → letter generation, PDF/TXT export, Appeals list + dialog all work. ONE failing test: brute-force lockout returns 429 only when hitting the backend directly on localhost; over the K8s ingress `request.client.host` varies across proxy pods (10.231.156.2 vs 10.231.156.5 observed), so the {ip}:{email} identifier fragments the failure counter and the 6th attempt still returns 401 instead of 429 — real security issue in prod.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "/api/auth/login", "issue": "Brute-force lockout counter uses request.client.host which resolves to the ingress pod IP behind K8s (multiple pods). Same email hitting different pods creates separate counters, so 5-attempt lockout can be bypassed indefinitely. Verified in DB: two identifiers with counts 2 and 4 for one test email. Fix: read the first IP from X-Forwarded-For / X-Real-IP when present (or key lockout by email alone with a slightly higher threshold).", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "/api/auth/register", "issue": "No email confirmation / rate limit on registration — a bot could create many accounts. Consider a captcha or rate limit."},
+      {"endpoint": "server.py", "issue": "CORS_ORIGINS defaults to '*' with allow_credentials=True in .env. Starlette will silently strip credentials in that combo. Since the app is same-origin behind ingress this doesn't break today, but the config is contradictory and should be an explicit allowlist."},
+      {"endpoint": "auth.py::seed_default_user", "issue": "Idempotent — re-hashes and updates password if it changes. Good. No fault, but note admin@dental.com password is hardcoded in backend/.env; rotating requires a code deploy."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Appeals list card", "issues": ["Carrier badge uses bg-secondary which is a very muted grey — could match the primary tint pill used elsewhere (History card uses same, so consistent but low contrast)."]},
+      {"screen": "AppealDialog result view", "issues": ["Regenerate and Copy buttons stack tightly with Edit; when the letter is long the button strip is fine, but on narrow viewports (< 640px) the button row wraps and Copy loses its icon spacing. Not blocking."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_iter3_test.py",
+    "/app/test_reports/pytest/iter3_results.xml"
+  ],
+  "action_items": [
+    "FIX (HIGH): auth.py brute-force protection — resolve client IP from X-Forwarded-For header when behind the ingress, or key lockout by email only. Currently exploitable over public URL.",
+    "OPTIONAL: replace CORS_ORIGINS='*' with an explicit allowlist since allow_credentials=True is set.",
+    "OPTIONAL: add rate limit on /api/auth/register."
+  ],
+  "critical_code_review_comments": [
+    "server.py is ~600 lines and mixes auth/narrative/appeal/export routers — consider splitting each domain into its own router module before it grows further.",
+    "server.py::create_appeal returns a valid AppealRecord but silently swallows narrative-lookup errors as a plain 404; when narrative_id is present but the id string is not a valid uuid, mongo find_one just returns None → 404. Fine, but a distinct 400 for malformed ids would help clients.",
+    "server.py::export_pdf / export_txt (and appeal/visit variants) accept `payload: dict` with no shape validation. reportlab handles missing keys gracefully (.get with defaults) but a Pydantic model would be safer against pathological input.",
+    "auth.py::_extract_token accepts either the httpOnly cookie or an Authorization: Bearer header — good, but ensure /api/auth/logout requires the cookie (currently it Depends(get_current_user) so this is fine).",
+    "narrative_service._extract_json uses a greedy regex '{.*}' which is fine but fails silently if the model returns two JSON objects (only first match with the outermost braces will parse). Not a bug today but worth logging when the response text differs from the parsed dict."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_iter3_test.py (new)"
+  ],
+  "success_rate": {"backend": "97% (30/31)", "frontend": "100%"},
+  "test_credentials": "admin@dental.com / admin123 (seeded on startup — bcrypt $2b$ hash verified in DB)",
+  "seed_data_creation": "Test-run created TEST_ narratives/appeals for two fresh users and a UI_TEST_ADMIN narrative for admin. All cleaned up post-run (1 narrative, 2 appeals, 9 users, 3 login_attempts removed).",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend URL: https://dent-writeup-tool.preview.emergentagent.com. Test admin: admin@dental.com / admin123 (auto-seeded). All /api routes except / /procedures /carriers /auth/register /auth/login /auth/refresh require the access_token cookie. Cookies are httpOnly, samesite=lax, secure=false. Per-user isolation is scoped by users._id-as-string in the user_id field on narratives/visits/appeals. Old records without user_id are invisible after this change (expected). Auth playbook: /app/auth_testing.md; credentials: /app/memory/test_credentials.md. Pytest run: cd /app && REACT_APP_BACKEND_URL=https://dent-writeup-tool.preview.emergentagent.com python -m pytest backend/tests/backend_iter3_test.py -v. Brute-force lockout works on localhost:8001 (single IP) but not over the public URL — confirmed empirically. Concurrency semaphore = 3 for LLM calls; a 5-procedure visit completed in ~15-25s (~2 batches).",
+  "rca of the issue": "Brute-force test failure RCA: repeated failed logins against the public URL land on multiple ingress pods with distinct client IPs (e.g. 10.231.156.2 and 10.231.156.5). auth.register_failed_attempt uses `identifier = f'{ip}:{email}'` so the counter is split. Each split counter must independently reach 5 for lockout to engage; since each request round-robins to a different pod, no single counter reaches 5 fast enough. Fix: prefer request.headers.get('x-forwarded-for', request.client.host).split(',')[0].strip() OR key the counter by email only (with the accepted UX trade-off of one user locking themselves out). Reproduction: python -c 'import requests; email=\"test@x\"; requests.post(...register...); s=requests.Session();\\n for _ in range(6): print(s.post(url+\"/auth/login\", json={...wrong pw}).status_code)' — 6th response is 401 over public URL, 429 over http://localhost:8001."
+}
