@@ -9,6 +9,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { listHistory, deleteHistoryItem } from "@/lib/api";
 
@@ -175,11 +176,11 @@ export default function History() {
                   </span>
                   {selected.procedure_name}
                 </DialogTitle>
-                <div className="text-xs text-muted-foreground mt-1">
+                <DialogDescription className="text-xs text-muted-foreground mt-1">
                   {selected.tooth_number && `Tooth #${selected.tooth_number} · `}
                   {selected.patient_label && `${selected.patient_label} · `}
                   {formatDate(selected.created_at)}
-                </div>
+                </DialogDescription>
               </DialogHeader>
 
               <div className="space-y-5 mt-4">
