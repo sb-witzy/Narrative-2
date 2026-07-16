@@ -11,10 +11,11 @@ from bson import ObjectId
 from fastapi import HTTPException, Request
 
 JWT_ALGORITHM = "HS256"
-ACCESS_MINUTES = 60 * 12   # 12h — friendly for a workday
+ACCESS_MINUTES = 30           # short-lived; refresh interceptor renews silently
 REFRESH_DAYS = 7
 LOCKOUT_ATTEMPTS = 5
 LOCKOUT_MINUTES = 15
+REGISTER_LIMIT_PER_HOUR = 5   # max signups per IP per hour
 
 
 def get_jwt_secret() -> str:
@@ -151,6 +152,26 @@ async def clear_login_attempts(db, identifier: str) -> None:
     await db.login_attempts.delete_one({"identifier": identifier})
 
 
+# ---------- Registration rate limiting ----------
+async def check_and_record_register(db, ip: str) -> bool:
+    """Return True if allowed, False if rate-limited.
+
+    Rolling 1-hour window per IP; max REGISTER_LIMIT_PER_HOUR signups.
+    """
+    now = datetime.now(timezone.utc)
+    window_start = now - timedelta(hours=1)
+    # Purge stale entries for this IP
+    await db.register_attempts.delete_many({
+        "ip": ip,
+        "at": {"$lt": window_start.isoformat()},
+    })
+    count = await db.register_attempts.count_documents({"ip": ip})
+    if count >= REGISTER_LIMIT_PER_HOUR:
+        return False
+    await db.register_attempts.insert_one({"ip": ip, "at": now.isoformat()})
+    return True
+
+
 # ---------- Admin/demo seeding ----------
 async def seed_default_user(db) -> dict | None:
     admin_email = os.environ.get("ADMIN_EMAIL")
@@ -183,6 +204,7 @@ async def seed_default_user(db) -> dict | None:
 async def ensure_indexes(db) -> None:
     await db.users.create_index("email", unique=True)
     await db.login_attempts.create_index("identifier")
+    await db.register_attempts.create_index("ip")
     await db.narratives.create_index("user_id")
     await db.visits.create_index("user_id")
     await db.appeals.create_index("user_id")

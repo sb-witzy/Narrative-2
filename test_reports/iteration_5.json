@@ -1,0 +1,36 @@
+{
+  "summary": "Iteration 5 backend hardening: 12/12 pytest tests pass. Verified (a) explicit CORS allowlist works at the app layer (allowed origin reflected + credentials header set; disallowed origin gets 400 'Disallowed CORS origin' with no echo), (b) /api/auth/register rate limits at 5 signups per IP per rolling 1h window and the 6th returns 429, (c) rate-limit purge correctly deletes >1h-old attempts, (d) rate limit does NOT block login (admin login still 200 after the register limit is tripped), (e) access-token JWT exp is ~30 min (1500-1900s window), refresh remains ~7 days, (f) /api/auth/refresh rotates the access cookie with a fresh 30-min TTL, (g) full regression smoke passes: admin login -> generate D2740 narrative -> appeal letter -> PDF export.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "CORS (public URL / ingress)", "issue": "Cloudflare/K8s ingress at https://dent-writeup-tool.preview.emergentagent.com intercepts OPTIONS preflight and overrides the app's CORS headers with 'Access-Control-Allow-Origin: *' and 'Access-Control-Allow-Headers: *', while still keeping 'Access-Control-Allow-Credentials: true'. Per the fetch spec, ACAO=* combined with credentials=true is rejected by browsers. The app-level configuration is correct (verified against localhost:8001). This is a platform artifact the app cannot control, but worth flagging: the browser-visible CORS story at the preview URL is weaker than what the FastAPI middleware allows. Same-origin requests work because they do not require CORS at all."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/backend_iter5_test.py",
+    "/app/test_reports/pytest/iter5_results.xml"
+  ],
+  "action_items": [
+    "None blocking. The three iter5 hardening items are all correctly implemented at the app layer.",
+    "Optional: if you want stronger CORS enforcement at the preview URL, coordinate with platform to stop injecting '*' at the Cloudflare/ingress layer. In production this is typically fine because the frontend is same-origin."
+  ],
+  "critical_code_review_comments": [
+    "auth.py::check_and_record_register uses a rolling 1h window via delete_many({'at': {'$lt': window_start.isoformat()}}). Correct and idempotent. Because 'at' is stored as ISO-8601 UTC strings, string comparison is lexicographically equivalent to time comparison — safe.",
+    "server.py::register calls check_and_record_register BEFORE checking for duplicate email. This means a duplicate-email attempt still consumes a slot in the rate-limit window. Not a bug per se, but note that a spammer probing existing emails will burn through the 5/h faster. Trade-off is acceptable and matches spec.",
+    "auth.py ACCESS_MINUTES=30 combined with the frontend refresh interceptor is the correct hardening. Refresh cookie remains 7 days. No downgrade to security posture.",
+    "server.py CORS middleware now uses os.environ.get('CORS_ORIGINS', '').split(',') with strip+filter — if the env var is missing this yields [] (deny-all) rather than the old '*'. Fail-secure default, good.",
+    "register_attempts collection: no TTL index. delete_many on each register call purges stale rows for the calling IP only. If an IP hits the endpoint exactly 5 times and then stops, those 5 rows persist forever. Low impact (bounded by unique IPs * 5), but consider a MongoDB TTL index on 'at' (converted to Date) for automatic cleanup. Not required for iter5 acceptance."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_iter5_test.py (new — 12 tests)",
+    "/app/test_reports/pytest/iter5_results.xml"
+  ],
+  "success_rate": {"backend": "100% (12/12)", "frontend": "not tested (backend-only per request)"},
+  "test_credentials": "admin@dental.com / admin123 (unchanged)",
+  "seed_data_creation": "Created up to 5 throwaway users matching ^ratelimit-*@test.com and 1 purgetest-*@test.com during rate-limit tests. All are cleaned up by the module-scoped teardown fixture (cleanup_before_and_after). db.register_attempts is also purged before and after the run.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend URL: https://dent-writeup-tool.preview.emergentagent.com. When testing CORS behavior, hit localhost:8001 directly — the public URL's Cloudflare ingress rewrites CORS response headers to ACAO=* regardless of Origin. All 12 iter5 tests pass. Rate-limit test purges the register_attempts collection at start/end, so re-running back-to-back is safe. If you need to exercise the rate limit again, module fixture cleanup_before_and_after handles it. Access-token TTL is now 30 min — long-running tests spanning >30 min should call /api/auth/refresh explicitly rather than relying on the single login cookie.",
+  "rca of the issue": "N/A — this iteration is a hardening/enhancement pass, not a bug fix. All three items landed correctly: (1) CORS is now allowlist-based at the app layer (fail-secure if env missing); (2) register rate limit is a per-IP rolling 1h window backed by db.register_attempts with a stale-row purge on each call; (3) access-token TTL dropped from 12h to 30 min, matching the frontend auto-refresh interceptor design."
+}

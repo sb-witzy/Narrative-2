@@ -209,6 +209,12 @@ def _user_out(user_doc: dict) -> dict:
 
 @auth_router.post("/register")
 async def register(payload: RegisterRequest, request: Request, response: Response):
+    ip = auth_mod._client_ip(request)
+    if not await auth_mod.check_and_record_register(db, ip):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many signups from this location. Please try again in an hour.",
+        )
     email = payload.email.lower().strip()
     existing = await db.users.find_one({"email": email})
     if existing:
@@ -594,7 +600,7 @@ app.include_router(api_router)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
+    allow_origins=[o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()],
     allow_methods=["*"],
     allow_headers=["*"],
 )
