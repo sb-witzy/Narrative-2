@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { toast } from "sonner";
 import { Trash2, Search, FileDown, FileText, Copy, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -26,15 +26,15 @@ export default function Appeals() {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
 
-  const load = () => {
+  const load = useCallback(() => {
     setLoading(true);
     listAppeals()
       .then(setItems)
       .catch((e) => toast.error(apiErrorMessage(e)))
       .finally(() => setLoading(false));
-  };
+  }, []);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [load]);
 
   const filtered = items.filter((it) => {
     if (!query) return true;

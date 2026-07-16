@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useCallback } from "react";
+import { createContext, useContext, useEffect, useState, useCallback, useMemo } from "react";
 import { authMe, authLogin, authRegister, authLogout } from "@/lib/api";
 
 // user states: undefined (checking), user object (authenticated), null (not authenticated)
@@ -28,32 +28,33 @@ export function AuthProvider({ children }) {
     refresh();
   }, [refresh]);
 
-  const login = async (email, password) => {
+  const login = useCallback(async (email, password) => {
     const u = await authLogin(email, password);
     setUser(u);
     return u;
-  };
+  }, []);
 
-  const register = async (email, password, officeName) => {
+  const register = useCallback(async (email, password, officeName) => {
     const u = await authRegister(email, password, officeName);
     setUser(u);
     return u;
-  };
+  }, []);
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     try {
       await authLogout();
     } catch {
       /* ignore */
     }
     setUser(null);
-  };
+  }, []);
 
-  return (
-    <AuthContext.Provider value={{ user, login, register, logout, refresh }}>
-      {children}
-    </AuthContext.Provider>
+  const value = useMemo(
+    () => ({ user, login, register, logout, refresh }),
+    [user, login, register, logout, refresh],
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export const useAuth = () => useContext(AuthContext);

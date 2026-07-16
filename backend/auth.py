@@ -89,6 +89,7 @@ def _extract_token(request: Request, cookie_name: str = "access_token") -> str |
 
 
 def decode_token(token: str, expected_type: str) -> dict:
+    payload: dict = {}
     try:
         payload = jwt.decode(token, get_jwt_secret(), algorithms=[JWT_ALGORITHM])
     except jwt.ExpiredSignatureError:
@@ -106,6 +107,7 @@ def make_get_current_user(db):
         if not token:
             raise HTTPException(status_code=401, detail="Not authenticated")
         payload = decode_token(token, "access")
+        user = None
         try:
             user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
         except Exception:

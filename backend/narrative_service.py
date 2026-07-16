@@ -61,6 +61,7 @@ Output schema:
 def _system_prompt(carrier: str | None = None, schema: str = "both") -> str:
     carrier_key = (carrier or "generic").lower()
     guidance = CARRIER_GUIDANCE.get(carrier_key, CARRIER_GUIDANCE["generic"])
+    schema_text = ""
     if schema == "short":
         schema_text = '{ "short_narrative": "<1-2 sentences, ~25-45 words, suitable for the claim form Remarks field>" }'
     elif schema == "long":

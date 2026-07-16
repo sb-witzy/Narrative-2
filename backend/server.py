@@ -279,6 +279,7 @@ async def refresh_token(request: Request, response: Response):
     payload = auth_mod.decode_token(token, "refresh")
     user_id = payload["sub"]
     from bson import ObjectId
+    user = None
     try:
         user = await db.users.find_one({"_id": ObjectId(user_id)})
     except Exception:

@@ -1,0 +1,41 @@
+{
+  "summary": "Iteration 7 regression pass after refactor-only fixes (useCallback/useMemo in AuthContext + ProtectedRoute + History/Appeals load hooks, defensive var init in auth.py/server.py/narrative_service.py, and stable _key UUIDs on BulkVisit rows). All 6 review criteria verified end-to-end. Backend pytest: 9/9 pass. Frontend Playwright: 6/6 critical flows pass (login, single generate D2740 with PDF/TXT visible + no /login redirect, bulk add/remove/add row stability + 2-procedure visit generate with both records + packet PDF button, refresh-failure UX with session-expired-banner + reason=expired&from=%2F, History -> Draft appeal dialog -> AppealDialog letter rendered with PDF/TXT export). Verified: Set-Cookie Secure=True on HTTPS for register/login/refresh; /api/auth/refresh returns _user_out shape; deleted-user refresh returns 401 'User not found'; VisitProcedure ConfigDict(extra='ignore') tolerates leaked _key; auto-refresh mechanics (delete access-only) yields 200 refresh + 200 retry generate.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_iter7_test.py",
+    "/app/test_reports/pytest/iter7_results.xml"
+  ],
+  "action_items": [
+    "None. Refactor-only pass is regression-clean. Safe to ship."
+  ],
+  "critical_code_review_comments": [
+    "AuthContext.jsx: login/register/logout/refresh correctly wrapped in useCallback with [] deps (they only close over setUser which is stable). value wrapped in useMemo prevents cascade re-renders in ProtectedRoute + useAuth consumers. Correct implementation.",
+    "ProtectedRoute.jsx: navState memoized on [location.pathname]. Note: it does NOT include location.search, so a deep link like /history?tab=archived losing its query string on redirect->login is a possible minor UX issue, but the api.js interceptor already handles the deep-link case via reason=expired&from=<full path+search>, so this is not blocking.",
+    "BulkVisit.jsx: emptyRow() uses crypto.randomUUID() with a Date.now()+Math.random() fallback. Stable _key means React reuses row DOM nodes when adding/removing (verified: no lost focus, no state bleed). validRows strips _key via destructure before POST — plus VisitProcedure has ConfigDict(extra='ignore'), so double-safe.",
+    "server.py::refresh_token defensively initializes user=None before the try/except ObjectId(user_id) block — matches the pattern in auth.py::make_get_current_user. Both return 401 with clear detail ('Invalid user id' vs 'User not found').",
+    "narrative_service.py::_system_prompt schema_text defensive init: not verified directly, but no regressions in generate/regenerate/appeal flows (all return valid JSON with long_narrative/short_narrative/letter/subject_line).",
+    "Nit (not blocking): BulkVisit removeRow(idx) when rows.length === 1 replaces the single row with a NEW emptyRow (fresh _key) instead of clearing fields in place — this is intentional (guarantees new UUID), but callers might be surprised by full re-mount. Fine as-is."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_iter7_test.py (new)",
+    "/app/test_reports/pytest/iter7_results.xml (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (9/9 pytest)",
+    "frontend": "100% (6/6 Playwright flows: login, single-generate, bulk add/remove/add + 2-proc visit generate, history+appeal end-to-end, refresh-failure UX + banner + return URL)"
+  },
+  "test_credentials": "admin@dental.com / admin123 (seeded)",
+  "seed_data_creation": "One throwaway user per pytest run in TestRefreshUserNotFound (TEST_iter7_<uuid>@example.com) — bounded by 5/hr IP register rate limit. Auto-cleaned by the same test via direct DB delete.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iter7 is a refactor-only regression pass; no code changes required. Backend URL is https://dent-writeup-tool.preview.emergentagent.com. Key selectors for Playwright: login-email, login-password, login-submit (Login.jsx); procedure-select + procedure-option-<CODE> (ProcedureSelect); tooth-picker-open + tooth-picker-tooth-<N> (single-mode auto-closes dialog on selection, do NOT click tooth-picker-done); input-clinical, generate-btn, export-pdf-btn, export-txt-btn (Dashboard); bulk-add-row, bulk-remove-<idx>, bulk-row-<idx>, bulk-proc-select-<idx>, bulk-clinical-<idx>, bulk-visit-notes, bulk-generate-btn, bulk-export-pdf, bulk-record-<i> (BulkVisit); history-item-<id> then dlg-draft-appeal (History has-modal dialog); appeal-denial-reason + appeal-generate-btn + appeal-letter-text + appeal-export-pdf (AppealDialog); session-expired-banner (Login). Bulk route is /bulk not /visit. Valid procedure codes: D2740 D2750 D2950 D2543 D2644 D3310 D3320 D3330 D7140 D7210 D7240 D4341 D4342 D4910 D6010 D6057 D6058 D6240 D7953 D7952 D9944 D9945.",
+  "rca of the issue": "N/A — refactor-only pass, no bug to root-cause. All existing behavior preserved: cookie Secure attr flips correctly on HTTPS, auth refresh returns _user_out with 401 on missing user, bulk visit tolerates row _key leakage (defense-in-depth via extra='ignore'), auto-refresh interceptor + refresh-failure UX both intact."
+}

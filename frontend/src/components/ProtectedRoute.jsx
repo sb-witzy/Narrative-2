@@ -1,10 +1,12 @@
 import { Navigate, useLocation } from "react-router-dom";
+import { useMemo } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { Loader2 } from "lucide-react";
 
 export default function ProtectedRoute({ children }) {
   const { user } = useAuth();
   const location = useLocation();
+  const navState = useMemo(() => ({ from: location.pathname }), [location.pathname]);
 
   if (user === undefined) {
     return (
@@ -15,7 +17,7 @@ export default function ProtectedRoute({ children }) {
   }
 
   if (user === null) {
-    return <Navigate to="/login" state={{ from: location.pathname }} replace />;
+    return <Navigate to="/login" state={navState} replace />;
   }
 
   return children;

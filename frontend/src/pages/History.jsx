@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { toast } from "sonner";
 import {
   Copy, Trash2, ChevronRight, Search, Camera, Check, FileDown, FileText, Scale,
@@ -28,15 +28,15 @@ export default function History() {
   const [loading, setLoading] = useState(true);
   const [appealFor, setAppealFor] = useState(null);
 
-  const load = () => {
+  const load = useCallback(() => {
     setLoading(true);
     listHistory()
       .then(setItems)
       .catch(() => toast.error("Failed to load history"))
       .finally(() => setLoading(false));
-  };
+  }, []);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [load]);
 
   const filtered = items.filter((it) => {
     if (!query) return true;

@@ -21,6 +21,9 @@ import {
 } from "@/lib/api";
 
 const emptyRow = () => ({
+  _key: (typeof crypto !== "undefined" && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : `row-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
   procedure_code: "",
   tooth_number: "",
   surfaces: "",
@@ -51,7 +54,9 @@ export default function BulkVisit() {
   const removeRow = (idx) =>
     setRows((rs) => (rs.length === 1 ? [emptyRow()] : rs.filter((_, i) => i !== idx)));
 
-  const validRows = rows.filter((r) => r.procedure_code);
+  const validRows = rows
+    .filter((r) => r.procedure_code)
+    .map(({ _key, ...rest }) => rest);
   const canGenerate = validRows.length > 0 && !loading;
 
   const onGenerate = async () => {
@@ -157,7 +162,7 @@ export default function BulkVisit() {
           {rows.map((row, idx) => {
             const proc = procedures.find((p) => p.code === row.procedure_code);
             return (
-              <div key={idx} className="clay p-5 space-y-4" data-testid={`bulk-row-${idx}`}>
+              <div key={row._key} className="clay p-5 space-y-4" data-testid={`bulk-row-${idx}`}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="w-7 h-7 rounded-full bg-[hsl(var(--primary))] text-primary-foreground grid place-items-center font-mono text-xs font-bold">
