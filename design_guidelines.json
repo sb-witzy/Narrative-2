@@ -1,0 +1,130 @@
+{
+  "theme": "Light mode primary for clinical clarity; Dark mode supported.",
+  "archetype": "ORGANIC & EARTHY (Archetype 1)",
+  "typography": {
+    "headings": {
+      "family": "Manrope, sans-serif",
+      "weight": "font-bold to font-black",
+      "tracking": "tracking-tight",
+      "forbidden": [
+        "Inter",
+        "Roboto",
+        "Open Sans",
+        "Lato"
+      ]
+    },
+    "body": {
+      "family": "IBM Plex Sans, sans-serif",
+      "weight": "font-normal",
+      "tracking": "tracking-normal"
+    },
+    "scale": {
+      "h1": "text-3xl sm:text-4xl",
+      "h2": "text-xl sm:text-2xl",
+      "h3": "text-lg sm:text-xl",
+      "body": "text-base",
+      "labels": "text-xs tracking-[0.2em] uppercase"
+    }
+  },
+  "colors": {
+    "background": "#F9F9F8",
+    "surface": "#FFFFFF",
+    "text_primary": "#1A1A1A",
+    "text_secondary": "#5E5E5E",
+    "primary": "#4A6B5D",
+    "primary_hover": "#365045",
+    "border": "#E5E5E5",
+    "success": "#2D6A4F",
+    "warning": "#D4A373",
+    "forbidden": [
+      "#7351B7",
+      "#1B93A4",
+      "#000000",
+      "#808080"
+    ]
+  },
+  "visual_enhancers": {
+    "surfaces": "Neumorphism (Clay & Crisp variant) - Flat Solid surfaces, no heavy glassmorphism to prevent visual refraction of clinical data.",
+    "borders": "Use sharp 1px borders (border-black/5 or border-border) to ground elements.",
+    "radius": "Max 8px border-radius (rounded-lg) for a sharp but safe clinical feel."
+  },
+  "component_name": [
+    "Sidebar",
+    "ProcedureSelector",
+    "ClinicalDetailsForm",
+    "NarrativeOutputPanel",
+    "RadiographAdvisor",
+    "HistoryList"
+  ],
+  "grids": {
+    "strategy": "High Density Dashboard Grid",
+    "base": "grid-cols-1 lg:grid-cols-12 gap-6",
+    "layout_mapping": {
+      "sidebar": "col-span-12 lg:col-span-3",
+      "main_workspace": "col-span-12 lg:col-span-9 grid grid-cols-1 lg:grid-cols-2 gap-6",
+      "form_section": "col-span-1",
+      "output_section": "col-span-1 flex flex-col gap-6"
+    }
+  },
+  "layouts": {
+    "spacing": "Generous internal padding (p-6, p-8) within cards.",
+    "alignment": "Left-align forms and text. Center align empty states.",
+    "headers": "Solid background headers with hard bottom border. Never transparent."
+  },
+  "motion": {
+    "rules": [
+      "Micro-interactions only. No heavy 3D or parallax.",
+      "Hover states: Slight lift (-translate-y-0.5) and shadow-md for interactive cards.",
+      "Copy-to-clipboard: Quick pulse animation and color flash to green on success.",
+      "Respect prefers-reduced-motion."
+    ]
+  },
+  "accessibility": {
+    "contrast": "Ensure APCA standards or WCAG AA 4.5:1 for all text. No gray-on-gray.",
+    "focus": "focus:ring-2 focus:ring-primary/50 focus:outline-none on all inputs and buttons.",
+    "data_testid": "MANDATORY on all buttons, inputs, form fields, and copy actions (e.g., data-testid='copy-short-narrative')."
+  },
+  "media": {
+    "image_urls": [
+      {
+        "url": "https://images.pexels.com/photos/9062527/pexels-photo-9062527.jpeg",
+        "description": "Bright modern dental clinic. Use as a subtle background for the login/auth page or an empty state, with a heavy white/gray overlay (bg-white/80).",
+        "category": "background"
+      }
+    ]
+  },
+  "3d_libraries": {
+    "recommendation": "None. This is a high-density, text-heavy clinical tool. 3D elements would introduce unnecessary cognitive load and distraction."
+  },
+  "instructions_to_main_agent": [
+    "Install required dependencies: yarn add @phosphor-icons/react sonner",
+    "Use .js/.jsx extensions for all React components. Do not use .tsx.",
+    "Override default tailwind colors to match the Organic & Earthy palette.",
+    "Implement the bento layout for the main dashboard (Inputs on Left, Outputs on Right).",
+    "Do NOT use HTML <select> or <input type='date'>. Use Shadcn components.",
+    "Make sure the 'Copy to Clipboard' functionality is robust and provides a Sonner toast feedback.",
+    "Avoid the 'AI purple gradient' entirely. The AI generation should feel like a reliable clinical tool, not magic.",
+    "Implement a Radiograph requirement advisor using visual badges (Shadcn Alert or Badge) indicating PA, BW, Pano, or CBCT needs based on the procedure.",
+    "Include data-testid on every interactive element."
+  ],
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": [
+    "You tend to converge toward generic, 'on distribution' outputs. Make creative, distinctive frontends that surprise and delight.",
+    "Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients.",
+    "Don't make generic centered layouts, simplistic gradients, and uniform styling.",
+    "Create depth through layered design elements with z-index hierarchy.",
+    "You MUST NOT apply universal transition. Eg: transition: all. This results in breaking transforms.",
+    "You MUST NOT center align the app container, ie do not add .App { text-align: center; } in the css file.",
+    "Always use modern button styles like pill-shaped, or sharp button with interaction animations & color relevant to the app style.",
+    "NEVER: use AI assistant Emoji characters like robot, brain, lightbulb for icons.",
+    "Every interaction needs micro-animations - hover states, transitions, entrance animations. Static = dead.",
+    "Use 2-3x more spacing than feels comfortable. Cramped designs look cheap.",
+    "Subtle grain textures, custom selection states, and loading animations separate good from extraordinary.",
+    "All interactive and key informational elements MUST include a data-testid attribute."
+  ],
+  "GENERAL UI UX DESIGN GUIDELINES": [
+    "Reduce Cognitive Load: Surface only essential data; avoid cluttered forms or nested dropdowns.",
+    "Calm Visual Language: Avoid harsh reds or flashing alerts; use soft greens/blues and calm animations to build trust.",
+    "Information Hierarchy: Prioritize the generated narratives and actions (copying) by allocating adequate screen real estate.",
+    "F-Pattern Scanning: Ensure the most critical workflow actions follow natural left-to-right, top-to-bottom reading patterns."
+  ]
+}
