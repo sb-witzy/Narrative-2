@@ -83,8 +83,8 @@ export const apiErrorMessage = (err) =>
   formatApiErrorDetail(err?.response?.data?.detail) || err?.message || "Request failed";
 
 // Auth
-export const authLogin = (email, password) =>
-  api.post("/auth/login", { email, password }).then((r) => r.data);
+export const authLogin = (email, password, remember = false) =>
+  api.post("/auth/login", { email, password, remember }).then((r) => r.data);
 export const authRegister = (email, password, office_name) =>
   api.post("/auth/register", { email, password, office_name }).then((r) => r.data);
 export const authLogout = () => api.post("/auth/logout").then((r) => r.data);

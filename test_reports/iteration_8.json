@@ -1,0 +1,47 @@
+{
+  "summary": "Iteration 8 tests the 'Remember this device' 30-day refresh feature. Frontend is correct (checkbox with data-testid=login-remember renders, toggles, and POSTs remember:true in the login body). BACKEND BUG: the /api/auth/login endpoint in server.py does NOT forward payload.remember to create_refresh_token() or set_auth_cookies(). Result: with remember=true, the refresh_token cookie still has Max-Age=604800 (7 days) and JWT payload has remember=false. Consequently, /api/auth/refresh (which correctly reads remember from the JWT) never sees remember=true and always re-issues 7-day cookies. Access token TTL (~1800s) is unchanged, and regression admin login + end-to-end narrative generation still work.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "/api/auth/login",
+        "issue": "payload.remember is not forwarded to create_refresh_token() or set_auth_cookies(). Verified via curl and pytest: POST /api/auth/login with remember:true returns Set-Cookie refresh_token; Max-Age=604800 (should be 2592000) and JWT payload contains remember:false (should be true). This breaks the entire feature end-to-end — subsequent /api/auth/refresh reads remember=false from the JWT and keeps re-issuing 7-day cookies.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_iter8_test.py",
+    "/app/test_reports/pytest/iter8_results.xml"
+  ],
+  "action_items": [
+    "In /app/backend/server.py::login (around lines 258-260), forward payload.remember: `refresh = auth_mod.create_refresh_token(user_id, remember=payload.remember)` and `auth_mod.set_auth_cookies(response, access, refresh, secure=auth_mod.cookie_secure_for(request), remember=payload.remember)`. auth.py::create_refresh_token and set_auth_cookies already accept the remember kwarg — only the wiring in login() is missing.",
+    "After fix, re-run /app/backend/tests/backend_iter8_test.py — all 6 tests should pass (currently 4/6)."
+  ],
+  "critical_code_review_comments": [
+    "server.py::login() is missing the remember plumbing that the review request explicitly claims exists. Register endpoint is correctly NOT remember-aware (per spec). Refresh endpoint IS correctly remember-aware — but it only works if login embeds the flag in the JWT to begin with.",
+    "auth.py implementation is clean: REMEMBER_DAYS=30 constant, create_refresh_token(user_id, remember=False) picks 30d vs 7d and embeds `remember` in the JWT payload, set_auth_cookies accepts remember kwarg and computes refresh_max_age accordingly. Access cookie Max-Age is unaffected (correctly hardcoded to ACCESS_MINUTES*60).",
+    "Login.jsx correctly wires the checkbox: local state `remember`, Checkbox onCheckedChange sets it, form submit passes it into AuthContext.login(email, password, remember). data-testid=login-remember is present. UX: label text 'Remember this device for 30 days' with the '30 days' bolded — clear and unambiguous.",
+    "api.js::authLogin signature is (email, password, remember=false) and sends { email, password, remember } in the body — verified via network intercept.",
+    "Nit: LoginRequest.remember has default False in the Pydantic model, so old clients that don't send the field still get the 7-day session — good backward compat."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_iter8_test.py (new)",
+    "/app/test_reports/pytest/iter8_results.xml (new)"
+  ],
+  "success_rate": {
+    "backend": "67% (4/6 pytest: remember=false login + JWT check pass, refresh preserving remember=false passes, both admin regression tests pass; remember=true login cookie/JWT check fails, refresh preserving remember=true fails)",
+    "frontend": "100% (checkbox renders + toggles, POST body carries remember:true, login flow completes and navigates to /)"
+  },
+  "test_credentials": "admin@dental.com / admin123 (seeded)",
+  "seed_data_creation": "None — all tests use the seeded admin user.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "One-line backend fix in /app/backend/server.py::login: pass remember=payload.remember to create_refresh_token AND to set_auth_cookies. After the fix, re-run: `REACT_APP_BACKEND_URL=https://dent-writeup-tool.preview.emergentagent.com pytest /app/backend/tests/backend_iter8_test.py -v`. Expect 6/6 pass. Frontend has no changes needed. Selectors: login-email, login-password, login-remember, login-submit.",
+  "rca of the issue": "STEP-BY-STEP REPRODUCTION: (1) `curl -si -X POST https://dent-writeup-tool.preview.emergentagent.com/api/auth/login -H 'Content-Type: application/json' -d '{\"email\":\"admin@dental.com\",\"password\":\"admin123\",\"remember\":true}'` → observe `set-cookie: refresh_token=...; Max-Age=604800` (should be 2592000). (2) Base64-decode the refresh JWT payload → `{...,\"type\":\"refresh\",\"remember\":false}` (should be true). ROOT CAUSE: /app/backend/server.py lines 259-260 call `create_refresh_token(user_id)` and `set_auth_cookies(response, access, refresh, secure=...)` WITHOUT the remember argument, even though `payload: LoginRequest` has `remember: bool = False` populated from the body. auth.py already implements the feature correctly; only the wiring in the login handler is missing. FIX: change lines 259-260 to `refresh = auth_mod.create_refresh_token(user_id, remember=payload.remember)` and `auth_mod.set_auth_cookies(response, access, refresh, secure=auth_mod.cookie_secure_for(request), remember=payload.remember)`. VERIFICATION AFTER FIX: re-run backend_iter8_test.py (all 6 tests should pass) and re-curl to confirm Max-Age=2592000 + JWT.remember=true."
+}

@@ -53,6 +53,7 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+    remember: bool = False
 
 
 class UserOut(BaseModel):
@@ -286,9 +287,14 @@ async def refresh_token(request: Request, response: Response):
         raise HTTPException(status_code=401, detail="Invalid user id")
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
+    remember = bool(payload.get("remember", False))
     access = auth_mod.create_access_token(user_id, user["email"])
-    refresh = auth_mod.create_refresh_token(user_id)
-    auth_mod.set_auth_cookies(response, access, refresh, secure=auth_mod.cookie_secure_for(request))
+    refresh = auth_mod.create_refresh_token(user_id, remember=remember)
+    auth_mod.set_auth_cookies(
+        response, access, refresh,
+        secure=auth_mod.cookie_secure_for(request),
+        remember=remember,
+    )
     return _user_out(user)
 
 

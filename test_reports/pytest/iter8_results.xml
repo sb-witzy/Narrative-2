@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="6" time="14.842" timestamp="2026-07-16T15:25:23.678905+00:00" hostname="agent-env-f828ff07-51bc-436a-ba63-7d9ff144a21d"><testcase classname="tests.backend_iter8_test.TestRememberFlag" name="test_login_without_remember_sets_7d_refresh" time="0.640" /><testcase classname="tests.backend_iter8_test.TestRefreshPreservesRemember" name="test_refresh_with_remember_true_keeps_30d" time="0.701"><failure message="AssertionError: refresh should keep 30d TTL, got 604800&#10;assert 1987200 &lt;= 30&#10; +  where 1987200 = abs((604800 - 2592000))">backend/tests/backend_iter8_test.py:130: in test_refresh_with_remember_true_keeps_30d
+    assert abs(refresh_max - REFRESH_30D) &lt;= TOLERANCE, (
+E   AssertionError: refresh should keep 30d TTL, got 604800
+E   assert 1987200 &lt;= 30
+E    +  where 1987200 = abs((604800 - 2592000))</failure></testcase><testcase classname="tests.backend_iter8_test.TestRememberFlag" name="test_login_with_remember_sets_30d_refresh" time="0.397"><failure message="AssertionError: expected ~2592000s (30d), got 604800&#10;assert 1987200 &lt;= 30&#10; +  where 1987200 = abs((604800 - 2592000))">backend/tests/backend_iter8_test.py:101: in test_login_with_remember_sets_30d_refresh
+    assert abs(refresh_max - REFRESH_30D) &lt;= TOLERANCE, (
+E   AssertionError: expected ~2592000s (30d), got 604800
+E   assert 1987200 &lt;= 30
+E    +  where 1987200 = abs((604800 - 2592000))</failure></testcase><testcase classname="tests.backend_iter8_test.TestRefreshPreservesRemember" name="test_refresh_with_remember_false_keeps_7d" time="0.817" /><testcase classname="tests.backend_iter8_test.TestRegression" name="test_admin_login_and_generate[False]" time="6.272" /><testcase classname="tests.backend_iter8_test.TestRegression" name="test_admin_login_and_generate[True]" time="7.014" /></testsuite></testsuites>

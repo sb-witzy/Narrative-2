@@ -5,6 +5,7 @@ import { Loader2, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/context/AuthContext";
 import { apiErrorMessage } from "@/lib/api";
 
@@ -18,6 +19,7 @@ export default function Login() {
   const from = fromParam || location.state?.from || "/";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [remember, setRemember] = useState(false);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
@@ -26,7 +28,7 @@ export default function Login() {
     setErr("");
     setLoading(true);
     try {
-      await login(email, password);
+      await login(email, password, remember);
       toast.success("Welcome back");
       nav(from, { replace: true });
     } catch (e2) {
@@ -86,6 +88,17 @@ export default function Login() {
                 placeholder="••••••••" className="h-11"
               />
             </div>
+            <label className="flex items-center gap-2 cursor-pointer select-none" data-testid="remember-row">
+              <Checkbox
+                id="remember-me"
+                checked={remember}
+                onCheckedChange={(v) => setRemember(!!v)}
+                data-testid="login-remember"
+              />
+              <span className="text-sm text-foreground/80">
+                Remember this device for <span className="font-semibold">30 days</span>
+              </span>
+            </label>
             {err && (
               <div className="text-sm text-destructive bg-destructive/10 border border-destructive/30 rounded-md px-3 py-2"
                    data-testid="login-error">
