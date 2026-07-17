@@ -1,0 +1,58 @@
+# Narrative.Rx — one-command self-host stack
+# Bring the whole app up with:  docker compose up -d
+# Then open http://localhost:8080
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: narrative-rx-mongo
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+    # No external port by default — the app talks to Mongo over the internal network only.
+    # Uncomment to expose Mongo for admin tools:
+    # ports:
+    #   - "27017:27017"
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: narrative-rx-backend
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      MONGO_URL: mongodb://mongo:27017
+      DB_NAME: narrative_rx
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
+      JWT_SECRET: ${JWT_SECRET}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@dental.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+      EMERGENT_LLM_KEY: ${EMERGENT_LLM_KEY}
+      MAX_CONCURRENT_LLM: ${MAX_CONCURRENT_LLM:-3}
+    # No public port — nginx frontend proxies /api to this container.
+    # Uncomment to expose backend directly (e.g. for curl testing):
+    # ports:
+    #   - "8001:8001"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: narrative-rx-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${WEB_PORT:-8080}:80"
+
+volumes:
+  mongo-data:
+    driver: local

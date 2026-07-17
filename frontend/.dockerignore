@@ -1,0 +1,20 @@
+# Skip everything that shouldn't be baked into the frontend image.
+# Docker context is smaller and builds are faster.
+
+node_modules/
+build/
+.env
+.env.local
+.env.development.local
+.env.production.local
+
+# Editor / OS junk
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

@@ -1,0 +1,29 @@
+# Ignore local development state — the image copies the entire folder, so keep it lean.
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+.venv/
+env/
+*.egg-info/
+
+# Local env & tests
+.env
+.env.local
+tests/
+test_reports/
+pytest.ini
+.pytest_cache/
+
+# Editor / OS junk
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
