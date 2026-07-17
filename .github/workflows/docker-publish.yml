@@ -1,0 +1,95 @@
+name: Build & publish Docker images
+
+# Trigger:
+#   - pushes to main (produces the `latest` tag)
+#   - version tags like v1.2.3 (produces `1.2.3`, `1.2`, `1`, `latest`)
+#   - manual dispatch from the Actions tab
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+# Images are published to GitHub Container Registry under the repository owner.
+# GHCR is free, requires no extra signup, and images inherit the repo's visibility.
+env:
+  REGISTRY: ghcr.io
+  IMAGE_OWNER: ${{ github.repository_owner }}
+
+permissions:
+  contents: read
+  packages: write   # required to push to GHCR
+
+jobs:
+  build-and-push:
+    name: Build ${{ matrix.image }} for ${{ matrix.platforms }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: narrative-rx-backend
+            context: ./backend
+            dockerfile: ./backend/Dockerfile
+          - image: narrative-rx-frontend
+            context: ./frontend
+            dockerfile: ./frontend/Dockerfile
+        # Multi-arch: covers x86 servers/desktops + Apple Silicon + Raspberry Pi 4+
+        platforms:
+          - linux/amd64,linux/arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU (for multi-arch)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image tags & labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ matrix.image }}
+          # Lower-case the whole ref because GHCR rejects uppercase repo names
+          flavor: |
+            latest=auto
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
+            type=sha,format=short,prefix=sha-
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+          labels: |
+            org.opencontainers.image.title=Narrative.Rx ${{ matrix.image }}
+            org.opencontainers.image.description=Narrative.Rx — Dental insurance narrative assistant
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+      - name: Build & push
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          platforms: ${{ matrix.platforms }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+      - name: Image summary
+        run: |
+          echo "### Pushed ${{ matrix.image }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY

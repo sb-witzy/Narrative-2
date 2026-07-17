@@ -2,6 +2,11 @@
 
 Bring the whole app up on any machine (Mac, Linux, Windows) with **one command**.
 
+There are two flavors:
+
+- **Quick install** — pull pre-built images from GitHub Container Registry (fastest, ~30 seconds)
+- **Build from source** — clone and build locally (needed if you modified the code)
+
 ---
 
 ## Prerequisites
@@ -15,7 +20,36 @@ That's it. No Python, no Node, no MongoDB install required.
 
 ---
 
-## First-time setup
+## Quick install (pull pre-built images)
+
+Once you've pushed the repo to GitHub, the included GitHub Actions workflow publishes multi-arch (amd64 + arm64) images to `ghcr.io/<your-github-username>/narrative-rx-backend` and `-frontend` on every push to `main` and every `v*.*.*` tag.
+
+```bash
+# 1. Clone & configure
+git clone <your-github-url> narrative-rx
+cd narrative-rx
+cp .env.example .env
+
+# 2. Edit .env:
+#    JWT_SECRET=<random hex>
+#    EMERGENT_LLM_KEY=sk-emergent-<your key>
+#    GHCR_OWNER=<your-github-username-lowercase>   # uncomment this line
+#    IMAGE_TAG=latest
+
+# 3. Pull & run — no local build, no Python/Node needed on your machine
+docker compose -f docker-compose.yml -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.yml -f docker-compose.ghcr.yml up -d
+```
+
+Open http://localhost:8080. First run is ~30 seconds (image download only).
+
+To update to the latest version later:
+```bash
+docker compose -f docker-compose.yml -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.yml -f docker-compose.ghcr.yml up -d
+```
+
+## Build from source (dev / modified code)
 
 ```bash
 # 1. Clone the repo
