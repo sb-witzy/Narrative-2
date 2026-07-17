@@ -1,29 +1,41 @@
-# Narrative.Rx — Windows first-time setup
-# Run this once from PowerShell:
+# Narrative.Rx - Windows Server first-time setup (Rancher Desktop backend)
+# Run this once from an *Administrator* PowerShell:
 #   cd C:\path\to\narrative-rx
 #   powershell -ExecutionPolicy Bypass -File .\windows\setup.ps1
 
 $ErrorActionPreference = "Stop"
 
-Write-Host "`n=== Narrative.Rx — Windows setup ===" -ForegroundColor Cyan
+Write-Host "`n=== Narrative.Rx - Windows Server setup ===" -ForegroundColor Cyan
 
-# ---------- 1. Docker Desktop ----------
-Write-Host "`n[1/6] Checking Docker Desktop..." -ForegroundColor Yellow
-try {
-    docker version --format '{{.Server.Version}}' *> $null
-} catch {
-    Write-Host "  ERROR: Docker is not running." -ForegroundColor Red
-    Write-Host "  Install Docker Desktop from https://www.docker.com/products/docker-desktop"
-    Write-Host "  Open Docker Desktop, wait for the whale icon to stop animating, then re-run this script."
+# ---------- 1. Rancher Desktop / docker CLI ----------
+Write-Host "`n[1/6] Checking Rancher Desktop (dockerd engine)..." -ForegroundColor Yellow
+$dockerCmd = Get-Command docker -ErrorAction SilentlyContinue
+if (-not $dockerCmd) {
+    Write-Host "  ERROR: 'docker' command not found on PATH." -ForegroundColor Red
+    Write-Host ""
+    Write-Host "  Install Rancher Desktop first:"
+    Write-Host "    1. Enable WSL2:  wsl --install   (reboot when prompted)"
+    Write-Host "    2. Download:     https://rancherdesktop.io/"
+    Write-Host "    3. Install with defaults, launch it."
+    Write-Host "    4. In Rancher Desktop -> Preferences -> Container Engine, choose 'dockerd (moby)'."
+    Write-Host "    5. Wait until the tray icon shows 'Kubernetes / Container engine running', then re-run this script."
     exit 1
 }
-Write-Host "  OK"
+try {
+    $dockerVer = (docker version --format '{{.Server.Version}}' 2>$null)
+    if (-not $dockerVer) { throw "no server" }
+    Write-Host "  OK - dockerd $dockerVer"
+} catch {
+    Write-Host "  ERROR: Rancher Desktop is installed but the docker engine isn't responding." -ForegroundColor Red
+    Write-Host "  Open Rancher Desktop, wait until its tray icon says 'running', then re-run."
+    exit 1
+}
 
 # ---------- 2. Detect LAN IP ----------
 Write-Host "`n[2/6] Detecting this machine's LAN IP..." -ForegroundColor Yellow
 $lanIp = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
     Where-Object { $_.PrefixOrigin -in @('Dhcp','Manual') } |
-    Where-Object { $_.IPAddress -notlike '169.254.*' -and $_.IPAddress -notlike '127.*' } |
+    Where-Object { $_.IPAddress -notlike '169.254.*' -and $_.IPAddress -notlike '127.*' -and $_.InterfaceAlias -notlike '*WSL*' -and $_.InterfaceAlias -notlike '*vEthernet*' } |
     Select-Object -First 1).IPAddress
 if (-not $lanIp) { $lanIp = "127.0.0.1" }
 Write-Host "  Detected: $lanIp"
@@ -35,7 +47,7 @@ Set-Location $repoRoot
 # ---------- 4. .env ----------
 Write-Host "`n[3/6] Preparing .env..." -ForegroundColor Yellow
 if (Test-Path .env) {
-    Write-Host "  .env already exists — leaving it alone. Delete it and re-run to start over."
+    Write-Host "  .env already exists - leaving it alone. Delete it and re-run to start over."
 } else {
     if (-not (Test-Path .env.example)) {
         Write-Host "  ERROR: .env.example not found in $repoRoot" -ForegroundColor Red
@@ -43,7 +55,7 @@ if (Test-Path .env) {
     }
     Copy-Item .env.example .env
 
-    # JWT secret — 64 hex chars
+    # JWT secret - 64 hex chars
     $jwt = -join ((1..64) | ForEach-Object { '{0:x}' -f (Get-Random -Max 16) })
     (Get-Content .env) -replace '(?m)^JWT_SECRET=.*', "JWT_SECRET=$jwt" | Set-Content .env
 
@@ -58,7 +70,7 @@ if (Test-Path .env) {
     (Get-Content .env) -replace '(?m)^# GHCR_OWNER=.*', "GHCR_OWNER=$ghcrOwner" | Set-Content .env
     (Get-Content .env) -replace '(?m)^# IMAGE_TAG=.*', 'IMAGE_TAG=latest' | Set-Content .env
 
-    # CORS — allow same-origin from localhost AND from the LAN IP
+    # CORS - allow same-origin from localhost AND from the LAN IP
     (Get-Content .env) -replace '(?m)^CORS_ORIGINS=.*', "CORS_ORIGINS=http://localhost:8080,http://${lanIp}:8080" | Set-Content .env
 
     Write-Host "  .env created."
@@ -83,7 +95,7 @@ if ($existing) {
 }
 
 # ---------- 6. Pull + start ----------
-Write-Host "`n[5/6] Pulling Docker images (first pull is 2-4 minutes)..." -ForegroundColor Yellow
+Write-Host "`n[5/6] Pulling container images (first pull is 2-4 minutes)..." -ForegroundColor Yellow
 docker compose -f docker-compose.yml -f docker-compose.ghcr.yml pull
 
 Write-Host "`n[6/6] Starting Narrative.Rx..." -ForegroundColor Yellow
@@ -99,7 +111,7 @@ Write-Host ""
 Write-Host "  Demo sign-in:  admin@dental.com  /  admin123"
 Write-Host "  (Change the password on your first login.)"
 Write-Host ""
-Write-Host "  Auto-start on boot: open Docker Desktop -> Settings -> General ->"
-Write-Host "  tick 'Start Docker Desktop when you log in'. The containers already have"
-Write-Host "  restart: unless-stopped so they'll come back automatically."
+Write-Host "  Auto-start on boot: open Rancher Desktop -> Preferences -> Application ->"
+Write-Host "  tick 'Start at login' and 'Start in background'. The containers already"
+Write-Host "  have restart: unless-stopped so they'll come back on their own."
 Write-Host ""

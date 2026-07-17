@@ -7,8 +7,8 @@ cd /d "%~dp0.."
 docker compose -f docker-compose.yml -f docker-compose.ghcr.yml up -d
 if errorlevel 1 (
     echo.
-    echo Failed to start. Is Docker Desktop running?
-    echo Open Docker Desktop and wait for the whale icon to stop animating, then try again.
+    echo Failed to start. Is Rancher Desktop running?
+    echo Open Rancher Desktop and wait until the tray icon says the container engine is running, then try again.
     pause
     exit /b 1
 )
