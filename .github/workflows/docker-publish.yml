@@ -22,11 +22,15 @@ permissions:
 
 jobs:
   build-and-push:
-    name: Build ${{ matrix.image }} for ${{ matrix.platforms }}
+    name: Build ${{ matrix.image }} for ${{ env.PLATFORMS }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
+        # Use `image` as the primary matrix axis so GitHub Actions correctly
+        # generates one job per image. Extra config (context, dockerfile) is
+        # merged in via `include:` where the `image` key matches.
+        image: [narrative-rx-backend, narrative-rx-frontend]
         include:
           - image: narrative-rx-backend
             context: ./backend
@@ -34,9 +38,10 @@ jobs:
           - image: narrative-rx-frontend
             context: ./frontend
             dockerfile: ./frontend/Dockerfile
-        # Multi-arch: covers x86 servers/desktops + Apple Silicon + Raspberry Pi 4+
-        platforms:
-          - linux/amd64,linux/arm64
+
+    # Multi-arch built for both jobs: covers x86 servers/desktops + Apple Silicon + Pi 4+
+    env:
+      PLATFORMS: linux/amd64,linux/arm64
 
     steps:
       - name: Checkout
@@ -90,7 +95,7 @@ jobs:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
           push: true
-          platforms: ${{ matrix.platforms }}
+          platforms: ${{ env.PLATFORMS }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.image }}
