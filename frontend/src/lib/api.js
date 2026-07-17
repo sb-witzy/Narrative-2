@@ -101,11 +101,24 @@ export const apiErrorMessage = (err) =>
   formatApiErrorDetail(err?.response?.data?.detail) || err?.message || "Request failed";
 
 // Auth
-export const authLogin = (email, password, remember = false) =>
-  api.post("/auth/login", { email, password, remember }).then((r) => r.data);
-export const authRegister = (email, password, office_name) =>
-  api.post("/auth/register", { email, password, office_name }).then((r) => r.data);
-export const authLogout = () => api.post("/auth/logout").then((r) => r.data);
+export const authLogin = async (email, password, remember = false) => {
+  const data = await api.post("/auth/login", { email, password, remember }).then((r) => r.data);
+  if (data?.access_token) setBearerToken(data.access_token);
+  return data;
+};
+export const authRegister = async (email, password, office_name) => {
+  const data = await api.post("/auth/register", { email, password, office_name }).then((r) => r.data);
+  if (data?.access_token) setBearerToken(data.access_token);
+  return data;
+};
+export const authLogout = async () => {
+  try {
+    const data = await api.post("/auth/logout").then((r) => r.data);
+    return data;
+  } finally {
+    setBearerToken(null);
+  }
+};
 export const authMe = () => api.get("/auth/me").then((r) => r.data);
 
 // Catalog
