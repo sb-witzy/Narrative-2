@@ -151,7 +151,8 @@ async def regenerate_field(field: str, payload: dict, procedure: dict) -> str:
 
 async def generate_appeal_letter(narrative: dict, denial_reason: str,
                                  denial_code: str = "", extra_context: str = "",
-                                 office_name: str = "[Office Name]") -> dict:
+                                 office_name: str = "[Office Name]",
+                                 practice: dict | None = None) -> dict:
     """Generate a formal appeal letter referencing an existing narrative and denial info."""
     lines = [
         f"ORIGINAL NARRATIVE PROCEDURE: {narrative.get('procedure_name', '')} (CDT {narrative.get('procedure_code', '')})",
@@ -159,6 +160,18 @@ async def generate_appeal_letter(narrative: dict, denial_reason: str,
         f"Carrier: {(narrative.get('carrier') or 'generic').title()}",
         f"Date of service: {narrative.get('inputs', {}).get('date_of_service') or 'N/A'}",
         f"Office name: {office_name}",
+    ]
+    if practice:
+        addr_bits = [practice.get(k) for k in ("address_line1", "address_line2", "city", "state", "zip_code") if practice.get(k)]
+        if addr_bits:
+            lines.append(f"Office address: {', '.join(addr_bits)}")
+        if practice.get("phone"): lines.append(f"Office phone: {practice['phone']}")
+        if practice.get("npi"): lines.append(f"Office NPI: {practice['npi']}")
+        if practice.get("provider_name"):
+            p = practice["provider_name"]
+            if practice.get("provider_license"): p += f", Lic #{practice['provider_license']}"
+            lines.append(f"Treating provider: {p}")
+    lines += [
         "",
         "SHORT NARRATIVE (submitted originally):",
         narrative.get("short_narrative", ""),

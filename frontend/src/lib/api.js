@@ -144,6 +144,10 @@ export const getAppeal = (id) => api.get(`/appeals/${id}`).then((r) => r.data);
 export const updateAppeal = (id, payload) => api.patch(`/appeals/${id}`, payload).then((r) => r.data);
 export const deleteAppeal = (id) => api.delete(`/appeals/${id}`).then((r) => r.data);
 
+// Practice settings
+export const getPracticeSettings = () => api.get("/settings/practice").then((r) => r.data);
+export const savePracticeSettings = (payload) => api.put("/settings/practice", payload).then((r) => r.data);
+
 // Downloads
 async function downloadBlob(url, payload, filename) {
   const res = await api.post(url, payload, { responseType: "blob" });

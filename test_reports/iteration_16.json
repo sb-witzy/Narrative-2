@@ -1,0 +1,27 @@
+{
+  "summary": "Iter 16: Verified the new Practice Settings feature end-to-end (backend + frontend + LLM integration). 13/13 pytest tests pass (backend_iter16_test.py) covering: (1) GET /api/settings/practice returns model schema, (2) PUT with all 13 fields persists and GET returns identical values, (3) per-user isolation — admin's settings unaffected by a freshly-registered user's PUT, (4) unauthenticated GET rejected (401/403), (5) POST /api/appeals with practice set — LLM-generated `letter` contains the practice name 'Bright Smiles Dental' and does NOT contain the '[Office Name]' placeholder, (6) all 6 export endpoints (/api/export/pdf|txt, /api/export/visit/pdf|txt, /api/export/appeal/pdf|txt) return 200; PDFs start with %PDF magic bytes, TXT bodies contain the practice-name header, (7) regression /api/generate D2740 still works, GET /api/appeals still returns list. Frontend Playwright pass: admin login → nav-settings link visible → /settings loads with practice-settings-form → all 13 input testids present (settings-practice_name, address_line1, address_line2, city, state, zip_code, phone, fax, email, npi, tax_id, provider_name, provider_license) → fill 5 requested fields → settings-save-btn click succeeds → page reload preserves EXACT values ({practice_name:'Bright Smiles Dental', address_line1:'123 Main St', city:'Springfield', phone:'(555) 000-1111', npi:'1234567890'}) → nav back to Single dashboard, NO redirect to /login (regression clean). Admin practice_settings row was reset to nulls post-test to keep seeded admin clean.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/backend_iter16_test.py",
+    "/app/test_reports/pytest/iter16_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py `_get_practice_settings` correctly strips both `_id` and `user_id` via projection — no MongoDB ObjectId leaks. Good.",
+    "PUT /settings/practice uses upsert with $set on user_id — idempotent and per-user-scoped by users._id string; matches history/appeals scoping pattern.",
+    "PracticeSettings model uses `extra='ignore'` — clients that POST unknown fields get silently dropped instead of 422. Reasonable for a settings model but worth noting for API consumers.",
+    "narrative_service.generate_appeal_letter injects practice address/phone/npi/provider into the LLM prompt via structured lines — LLM-verified to reference 'Bright Smiles Dental' in the letter. However the letter can still contain other bracketed placeholders like [Carrier Address], [Claim #], [Date] which is intentional (from APPEAL_SYSTEM prompt schema) — biller fills those in.",
+    "pdf_service._practice_header cleanly no-ops when practice_name is missing, so existing users without settings get the OLD behavior (backwards compatible). Good.",
+    "Small nit: pdf_service.build_visit_txt calls build_txt(rec) without passing `practice=` — so the per-record inner TXT sub-sections don't have the practice header. Not a bug (outer header already prints practice), but slightly inconsistent with the PDF path. Non-blocking.",
+    "Practice settings size: 13 optional string fields with no length caps at the backend layer. Consider adding max_length constraints on the Pydantic model to prevent oversized rows (e.g., 200 chars each). Non-blocking.",
+    "server.py has grown to ~660 lines with 30+ endpoints — approaching the 700-line split threshold. Consider splitting auth, narratives, visits, appeals, settings, exports into routers/*.py modules on the next feature."
+  ],
+  "updated_files": ["/app/backend/tests/backend_iter16_test.py"],
+  "success_rate": {"backend": "100% (13/13 pytest)", "frontend": "100% (all Playwright assertions passed)"},
+  "test_credentials": "admin@dental.com / admin123 (seeded). Also registered ephemeral test_iter16_<uuid>@example.com for isolation test.",
+  "seed_data_creation": "Created transient test users prefixed test_iter16_<uuid>@example.com; admin practice_settings restored to nulls via PUT {} at end of run so no state leak into subsequent iterations.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "The practice_settings collection is user-scoped by user_id (string of ObjectId). PUT is upsert-style. GET strips _id + user_id. Appeal generation reads settings and injects into LLM prompt AND passes practice_name as office_name fallback so the LLM signs with the real name. All 6 export endpoints now accept optional practice kwarg via _get_practice_settings; PDF headers render only when practice_name is set. Frontend Settings page at /settings uses data-testid=practice-settings-form (form container) and data-testid=settings-<field_key> for each of the 13 fields plus settings-save-btn. Admin practice_settings row was RESET at end of iter 16 (all fields null) so downstream tests won't see stale values."
+}

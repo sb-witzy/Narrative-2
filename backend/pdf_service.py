@@ -126,7 +126,47 @@ def _narrative_flow(styles, record):
     return flow
 
 
-def build_pdf(record: dict, office_name: str = "Dental Office") -> bytes:
+def _practice_header(styles, practice: dict | None) -> list:
+    """Top-of-page header block with practice identity — appears above every PDF."""
+    if not practice:
+        return []
+    name = practice.get("practice_name")
+    if not name:
+        return []
+    lines = [Paragraph(f"<b>{name}</b>", styles["h1"])]
+    addr_bits = []
+    if practice.get("address_line1"):
+        addr_bits.append(practice["address_line1"])
+    if practice.get("address_line2"):
+        addr_bits.append(practice["address_line2"])
+    city_state_zip = " ".join(
+        b for b in [practice.get("city"),
+                    ((practice.get("state") or "") + (", " + practice["zip_code"] if practice.get("zip_code") else "")).strip(", ")]
+        if b
+    )
+    if city_state_zip:
+        addr_bits.append(city_state_zip)
+    contact_bits = []
+    if practice.get("phone"): contact_bits.append(f"Phone: {practice['phone']}")
+    if practice.get("fax"): contact_bits.append(f"Fax: {practice['fax']}")
+    if practice.get("email"): contact_bits.append(practice['email'])
+    ident_bits = []
+    if practice.get("npi"): ident_bits.append(f"NPI: {practice['npi']}")
+    if practice.get("tax_id"): ident_bits.append(f"Tax ID: {practice['tax_id']}")
+    if practice.get("provider_name"):
+        p = practice["provider_name"]
+        if practice.get("provider_license"):
+            p += f", Lic #{practice['provider_license']}"
+        ident_bits.append(p)
+    for chunk in [addr_bits, contact_bits, ident_bits]:
+        if chunk:
+            lines.append(Paragraph(" · ".join(chunk), styles["small"]))
+    lines.append(Spacer(1, 6))
+    lines.append(HRFlowable(width="100%", thickness=0.5, color=BORDER, spaceBefore=2, spaceAfter=10))
+    return lines
+
+
+def build_pdf(record: dict, office_name: str = "Dental Office", practice: dict | None = None) -> bytes:
     """Build a single-narrative PDF packet. Returns bytes."""
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -136,14 +176,16 @@ def build_pdf(record: dict, office_name: str = "Dental Office") -> bytes:
         title=f"Claim Narrative {record.get('procedure_code', '')}",
     )
     styles = _styles()
+    if practice and practice.get("practice_name"):
+        office_name = practice["practice_name"]
     date_str = datetime.now().strftime("%B %d, %Y")
     subtitle = f"{office_name} · Generated {date_str}"
-    flow = _header(styles, subtitle=subtitle) + _narrative_flow(styles, record)
+    flow = _practice_header(styles, practice) + _header(styles, subtitle=subtitle) + _narrative_flow(styles, record)
     doc.build(flow)
     return buf.getvalue()
 
 
-def build_visit_pdf(visit: dict, office_name: str = "Dental Office") -> bytes:
+def build_visit_pdf(visit: dict, office_name: str = "Dental Office", practice: dict | None = None) -> bytes:
     """Build a multi-procedure visit PDF packet. Returns bytes."""
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -153,6 +195,8 @@ def build_visit_pdf(visit: dict, office_name: str = "Dental Office") -> bytes:
         title=f"Visit Claim Packet {visit.get('id', '')[:8]}",
     )
     styles = _styles()
+    if practice and practice.get("practice_name"):
+        office_name = practice["practice_name"]
     date_str = datetime.now().strftime("%B %d, %Y")
     parts = [
         f"{office_name}",
@@ -162,7 +206,7 @@ def build_visit_pdf(visit: dict, office_name: str = "Dental Office") -> bytes:
         f"Generated {date_str}",
     ]
     subtitle = " · ".join(parts)
-    flow = _header(styles, title="Multi-Procedure Visit Claim Packet", subtitle=subtitle)
+    flow = _practice_header(styles, practice) + _header(styles, title="Multi-Procedure Visit Claim Packet", subtitle=subtitle)
 
     if visit.get("visit_notes"):
         flow.append(Paragraph("VISIT NOTES", styles["h2"]))
@@ -184,9 +228,32 @@ def build_visit_pdf(visit: dict, office_name: str = "Dental Office") -> bytes:
     return buf.getvalue()
 
 
-def build_txt(record: dict) -> str:
+def _practice_txt_header(practice: dict | None) -> list[str]:
+    if not practice or not practice.get("practice_name"):
+        return []
+    lines = [practice["practice_name"]]
+    for k in ("address_line1", "address_line2"):
+        if practice.get(k): lines.append(practice[k])
+    csz = " ".join(b for b in [practice.get("city"),
+        ((practice.get("state") or "") + (", " + practice["zip_code"] if practice.get("zip_code") else "")).strip(", ")] if b)
+    if csz: lines.append(csz)
+    contact = " · ".join(f"{k}: {practice[k]}" for k in ("phone", "fax", "email") if practice.get(k))
+    if contact: lines.append(contact)
+    ident = []
+    if practice.get("npi"): ident.append(f"NPI: {practice['npi']}")
+    if practice.get("tax_id"): ident.append(f"Tax ID: {practice['tax_id']}")
+    if practice.get("provider_name"):
+        p = practice["provider_name"]
+        if practice.get("provider_license"): p += f", Lic #{practice['provider_license']}"
+        ident.append(p)
+    if ident: lines.append(" · ".join(ident))
+    lines.append("=" * 60)
+    return lines
+
+
+def build_txt(record: dict, practice: dict | None = None) -> str:
     """Build a plain-text version of a single narrative packet."""
-    lines = [
+    lines = _practice_txt_header(practice) + [
         "DENTAL CLAIM NARRATIVE PACKET",
         f"Generated: {datetime.now().strftime('%B %d, %Y %H:%M')}",
         "-" * 60,
@@ -219,8 +286,8 @@ def build_txt(record: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def build_visit_txt(visit: dict) -> str:
-    lines = [
+def build_visit_txt(visit: dict, practice: dict | None = None) -> str:
+    lines = _practice_txt_header(practice) + [
         "MULTI-PROCEDURE VISIT CLAIM PACKET",
         f"Generated: {datetime.now().strftime('%B %d, %Y %H:%M')}",
         f"Patient:   {visit.get('patient_label') or '—'}",
@@ -238,7 +305,7 @@ def build_visit_txt(visit: dict) -> str:
     return "\n".join(lines)
 
 
-def build_appeal_pdf(appeal: dict, office_name: str = "Dental Office") -> bytes:
+def build_appeal_pdf(appeal: dict, office_name: str = "Dental Office", practice: dict | None = None) -> bytes:
     """Build a formal appeal letter PDF."""
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -248,12 +315,14 @@ def build_appeal_pdf(appeal: dict, office_name: str = "Dental Office") -> bytes:
         title=f"Appeal Letter {appeal.get('id', '')[:8]}",
     )
     styles = _styles()
+    if practice and practice.get("practice_name"):
+        office_name = practice["practice_name"]
     date_str = datetime.now().strftime("%B %d, %Y")
     subtitle_parts = [f"{office_name}", f"Prepared {date_str}"]
     if appeal.get("subject_line"):
         subtitle_parts.append(appeal["subject_line"])
     subtitle = " · ".join(subtitle_parts)
-    flow = _header(styles, title="Formal Claim Appeal Letter", subtitle=subtitle)
+    flow = _practice_header(styles, practice) + _header(styles, title="Formal Claim Appeal Letter", subtitle=subtitle)
 
     letter = appeal.get("letter") or ""
     # Preserve paragraph breaks
@@ -290,8 +359,8 @@ def build_appeal_pdf(appeal: dict, office_name: str = "Dental Office") -> bytes:
     return buf.getvalue()
 
 
-def build_appeal_txt(appeal: dict) -> str:
-    parts = [
+def build_appeal_txt(appeal: dict, practice: dict | None = None) -> str:
+    parts = _practice_txt_header(practice) + [
         "FORMAL CLAIM APPEAL LETTER",
         f"Generated: {datetime.now().strftime('%B %d, %Y %H:%M')}",
     ]

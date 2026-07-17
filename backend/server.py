@@ -132,6 +132,28 @@ class UpdateAppealRequest(BaseModel):
     subject_line: Optional[str] = None
 
 
+class PracticeSettings(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    practice_name: Optional[str] = None
+    address_line1: Optional[str] = None
+    address_line2: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    zip_code: Optional[str] = None
+    phone: Optional[str] = None
+    fax: Optional[str] = None
+    email: Optional[str] = None
+    npi: Optional[str] = None
+    tax_id: Optional[str] = None
+    provider_name: Optional[str] = None
+    provider_license: Optional[str] = None
+
+
+async def _get_practice_settings(user_id: str) -> dict:
+    doc = await db.practice_settings.find_one({"user_id": user_id}, {"_id": 0, "user_id": 0})
+    return doc or {}
+
+
 class RadiographAdvice(BaseModel):
     required: List[str] = []
     recommended: List[str] = []
@@ -303,6 +325,23 @@ async def refresh_token(request: Request, response: Response):
 
 
 app.include_router(auth_router)
+
+
+# ---------- Practice Settings ----------
+@api_router.get("/settings/practice", response_model=PracticeSettings)
+async def get_practice_settings(user=Depends(get_current_user)):
+    return await _get_practice_settings(user["_id"])
+
+
+@api_router.put("/settings/practice", response_model=PracticeSettings)
+async def update_practice_settings(req: PracticeSettings, user=Depends(get_current_user)):
+    payload = req.model_dump()
+    await db.practice_settings.update_one(
+        {"user_id": user["_id"]},
+        {"$set": {**payload, "user_id": user["_id"], "updated_at": datetime.now(timezone.utc).isoformat()}},
+        upsert=True,
+    )
+    return payload
 
 
 # ---------- Helpers ----------
@@ -485,13 +524,15 @@ async def create_appeal(req: AppealRequest, user=Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="denial_reason is required")
 
     office_name = user.get("office_name") or "[Office Name]"
+    practice = await _get_practice_settings(user["_id"])
     try:
         result = await generate_appeal_letter(
             narrative,
             req.denial_reason,
             req.denial_code or "",
             req.extra_context or "",
-            office_name=office_name,
+            office_name=practice.get("practice_name") or office_name,
+            practice=practice,
         )
     except Exception as e:
         logger.exception("Appeal generation failed")
@@ -559,7 +600,8 @@ async def delete_appeal(appeal_id: str, user=Depends(get_current_user)):
 # ---------- Export ----------
 @api_router.post("/export/pdf")
 async def export_pdf(payload: dict, user=Depends(get_current_user)):
-    pdf_bytes = build_pdf(payload)
+    practice = await _get_practice_settings(user["_id"])
+    pdf_bytes = build_pdf(payload, practice=practice)
     filename = f"claim-{payload.get('procedure_code', 'narrative')}-{payload.get('id', 'draft')[:8]}.pdf"
     return StarletteResponse(pdf_bytes, media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'})
@@ -567,7 +609,8 @@ async def export_pdf(payload: dict, user=Depends(get_current_user)):
 
 @api_router.post("/export/txt")
 async def export_txt(payload: dict, user=Depends(get_current_user)):
-    text = build_txt(payload)
+    practice = await _get_practice_settings(user["_id"])
+    text = build_txt(payload, practice=practice)
     filename = f"claim-{payload.get('procedure_code', 'narrative')}-{payload.get('id', 'draft')[:8]}.txt"
     return StarletteResponse(text, media_type="text/plain",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'})
@@ -575,7 +618,8 @@ async def export_txt(payload: dict, user=Depends(get_current_user)):
 
 @api_router.post("/export/visit/pdf")
 async def export_visit_pdf(payload: dict, user=Depends(get_current_user)):
-    pdf_bytes = build_visit_pdf(payload)
+    practice = await _get_practice_settings(user["_id"])
+    pdf_bytes = build_visit_pdf(payload, practice=practice)
     filename = f"visit-packet-{payload.get('id', 'draft')[:8]}.pdf"
     return StarletteResponse(pdf_bytes, media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'})
@@ -583,7 +627,8 @@ async def export_visit_pdf(payload: dict, user=Depends(get_current_user)):
 
 @api_router.post("/export/visit/txt")
 async def export_visit_txt(payload: dict, user=Depends(get_current_user)):
-    text = build_visit_txt(payload)
+    practice = await _get_practice_settings(user["_id"])
+    text = build_visit_txt(payload, practice=practice)
     filename = f"visit-packet-{payload.get('id', 'draft')[:8]}.txt"
     return StarletteResponse(text, media_type="text/plain",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'})
@@ -591,8 +636,8 @@ async def export_visit_txt(payload: dict, user=Depends(get_current_user)):
 
 @api_router.post("/export/appeal/pdf")
 async def export_appeal_pdf(payload: dict, user=Depends(get_current_user)):
-    office_name = user.get("office_name") or "Dental Office"
-    pdf_bytes = build_appeal_pdf(payload, office_name=office_name)
+    practice = await _get_practice_settings(user["_id"])
+    pdf_bytes = build_appeal_pdf(payload, practice=practice)
     filename = f"appeal-{payload.get('procedure_code', 'letter')}-{payload.get('id', 'draft')[:8]}.pdf"
     return StarletteResponse(pdf_bytes, media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'})
@@ -600,7 +645,8 @@ async def export_appeal_pdf(payload: dict, user=Depends(get_current_user)):
 
 @api_router.post("/export/appeal/txt")
 async def export_appeal_txt(payload: dict, user=Depends(get_current_user)):
-    text = build_appeal_txt(payload)
+    practice = await _get_practice_settings(user["_id"])
+    text = build_appeal_txt(payload, practice=practice)
     filename = f"appeal-{payload.get('procedure_code', 'letter')}-{payload.get('id', 'draft')[:8]}.txt"
     return StarletteResponse(text, media_type="text/plain",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'})

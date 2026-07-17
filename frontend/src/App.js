@@ -5,6 +5,7 @@ import Dashboard from "@/pages/Dashboard";
 import BulkVisit from "@/pages/BulkVisit";
 import History from "@/pages/History";
 import Appeals from "@/pages/Appeals";
+import Settings from "@/pages/Settings";
 import Login from "@/pages/Login";
 import Register from "@/pages/Register";
 import ProtectedRoute from "@/components/ProtectedRoute";
@@ -75,6 +76,9 @@ function Shell({ children }) {
             <NavLink to="/appeals" data-testid="nav-appeals" className={navLinkClass}>
               Appeals
             </NavLink>
+            <NavLink to="/settings" data-testid="nav-settings" className={navLinkClass}>
+              Settings
+            </NavLink>
           </nav>
           <UserMenu />
         </div>
@@ -121,6 +125,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <Shell><Appeals /></Shell>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/settings"
+        element={
+          <ProtectedRoute>
+            <Shell><Settings /></Shell>
           </ProtectedRoute>
         }
       />
