@@ -1,20 +1,11 @@
 @echo off
-REM Start Narrative.Rx on this machine (Podman + Hyper-V).
-REM Double-click, or run from cmd.
-
+REM Start Narrative.Rx on this Windows Server (native install).
 setlocal
-cd /d "%~dp0.."
-
-REM Make sure the podman machine (Hyper-V VM) is up first
-podman machine start 2>nul
-
-podman-compose -f docker-compose.yml -f docker-compose.ghcr.yml up -d
-if errorlevel 1 (
+sc query MongoDB | findstr "RUNNING" >nul || net start MongoDB
+net start NarrativeRx
+if errorlevel 2 (
     echo.
-    echo Failed to start. Common causes:
-    echo   - Podman machine isn't running:   podman machine start
-    echo   - Hyper-V VM not created yet:     re-run windows\setup.ps1
-    echo   - podman-compose missing:         pip install podman-compose
+    echo Failed to start. Check the log at windows\logs\service-stderr.log
     pause
     exit /b 1
 )

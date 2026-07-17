@@ -1,146 +1,191 @@
-# Narrative.Rx - Windows Server first-time setup (Podman + Hyper-V)
+# Narrative.Rx - Windows Server first-time setup (native, no containers)
 #
-# Prereqs before running this:
-#   1. Hyper-V role installed (setup.ps1 will check and prompt if missing)
-#   2. Podman for Windows 5.x installed:  https://github.com/containers/podman/releases
-#      (Grab podman-<version>-setup.exe and install with defaults)
-#   3. Python 3.10+ installed:  https://www.python.org/downloads/windows/
-#      (tick "Add Python to PATH" during install)
+# Prereqs before running this (install manually first, in this order):
+#   1. Git for Windows       https://git-scm.com/download/win
+#   2. Python 3.12+          https://www.python.org/downloads/windows/  (tick "Add python.exe to PATH")
+#   3. Node.js 20 LTS+       https://nodejs.org/  (tick "Automatically install the necessary tools")
+#   4. Yarn (after Node):    npm install -g yarn
+#   5. MongoDB Community 7   https://www.mongodb.com/try/download/community
+#                              -> tick "Install MongoDB as a Service" during the wizard
+#                              -> tick "Install MongoDB Compass" (nice UI to peek at data)
+#   6. NSSM 2.24+            https://nssm.cc/download
+#                              -> Extract nssm.exe from win64\ folder into C:\Windows\System32\
+#                              -> (or anywhere on PATH)
 #
-# Run this once from an *Administrator* PowerShell:
+# Then run this once from an *Administrator* PowerShell:
 #   cd C:\path\to\narrative-rx
 #   powershell -ExecutionPolicy Bypass -File .\windows\setup.ps1
 
 $ErrorActionPreference = "Stop"
 
-Write-Host "`n=== Narrative.Rx - Windows Server setup (Podman) ===" -ForegroundColor Cyan
+Write-Host "`n=== Narrative.Rx - Windows Server native setup ===" -ForegroundColor Cyan
 
-# ---------- 1. Hyper-V ----------
-Write-Host "`n[1/8] Checking Hyper-V..." -ForegroundColor Yellow
-$hv = Get-WindowsFeature -Name Hyper-V -ErrorAction SilentlyContinue
-if (-not $hv -or $hv.InstallState -ne 'Installed') {
-    Write-Host "  Hyper-V is NOT installed." -ForegroundColor Red
-    Write-Host "  Install it (this requires a reboot):" -ForegroundColor Yellow
-    Write-Host "    Install-WindowsFeature -Name Hyper-V -IncludeManagementTools -Restart"
-    Write-Host "  After the reboot, log back in and re-run this script."
-    exit 1
-}
-Write-Host "  OK - Hyper-V installed"
+# ---------- 1. Prereq checks ----------
+Write-Host "`n[1/8] Checking prerequisites..." -ForegroundColor Yellow
 
-# ---------- 2. Podman ----------
-Write-Host "`n[2/8] Checking Podman..." -ForegroundColor Yellow
-$podmanCmd = Get-Command podman -ErrorAction SilentlyContinue
-if (-not $podmanCmd) {
-    Write-Host "  ERROR: 'podman' command not found on PATH." -ForegroundColor Red
-    Write-Host "  Install Podman for Windows:"
-    Write-Host "    https://github.com/containers/podman/releases"
-    Write-Host "  Download the latest 'podman-*-setup.exe', install with defaults, open a NEW PowerShell, then re-run this script."
-    exit 1
-}
-$podmanVer = (podman --version) -replace 'podman version ', ''
-Write-Host "  OK - podman $podmanVer"
-
-# ---------- 3. Python + podman-compose ----------
-Write-Host "`n[3/8] Checking podman-compose..." -ForegroundColor Yellow
-$composeCmd = Get-Command podman-compose -ErrorAction SilentlyContinue
-if (-not $composeCmd) {
-    $py = Get-Command python -ErrorAction SilentlyContinue
-    if (-not $py) {
-        Write-Host "  ERROR: Python not found. Install Python 3.10+ from https://www.python.org/downloads/windows/" -ForegroundColor Red
-        Write-Host "  Tick 'Add Python to PATH' during install, open a NEW PowerShell, re-run this script."
-        exit 1
+function Require-Cmd($name, $help) {
+    $c = Get-Command $name -ErrorAction SilentlyContinue
+    if (-not $c) {
+        Write-Host "  MISSING: $name" -ForegroundColor Red
+        Write-Host "    $help"
+        return $false
     }
-    Write-Host "  Installing podman-compose via pip..."
-    python -m pip install --upgrade pip *> $null
-    python -m pip install podman-compose
-    if (-not (Get-Command podman-compose -ErrorAction SilentlyContinue)) {
-        Write-Host "  ERROR: podman-compose still not on PATH after pip install." -ForegroundColor Red
-        Write-Host "  Check where pip put it:  python -m pip show -f podman-compose"
-        exit 1
+    return $true
+}
+
+$ok = $true
+$ok = (Require-Cmd git    "Install Git: https://git-scm.com/download/win") -and $ok
+$ok = (Require-Cmd python "Install Python 3.12+: https://www.python.org/downloads/windows/  (tick 'Add python.exe to PATH')") -and $ok
+$ok = (Require-Cmd node   "Install Node.js 20 LTS: https://nodejs.org/") -and $ok
+$ok = (Require-Cmd yarn   "After Node.js: npm install -g yarn") -and $ok
+$ok = (Require-Cmd nssm   "Install NSSM from https://nssm.cc/download and put nssm.exe on PATH") -and $ok
+
+# MongoDB - either the service exists (installed via MSI) OR mongod.exe on PATH
+$mongoSvc = Get-Service -Name "MongoDB" -ErrorAction SilentlyContinue
+if (-not $mongoSvc) {
+    $mongoCmd = Get-Command mongod -ErrorAction SilentlyContinue
+    if (-not $mongoCmd) {
+        Write-Host "  MISSING: MongoDB" -ForegroundColor Red
+        Write-Host "    Install MongoDB Community from https://www.mongodb.com/try/download/community"
+        Write-Host "    During install, tick 'Install MongoDB as a Service'."
+        $ok = $false
     }
 }
-Write-Host "  OK - podman-compose available"
-
-# ---------- 4. Podman machine (Hyper-V VM that runs containers) ----------
-Write-Host "`n[4/8] Ensuring podman machine (Hyper-V VM) is running..." -ForegroundColor Yellow
-$machines = (podman machine list --format '{{.Name}}' 2>$null)
-if (-not $machines) {
-    Write-Host "  Initializing podman machine on Hyper-V (this takes 2-3 min the first time)..."
-    podman machine init --rootful --provider hyperv --cpus 2 --memory 4096 --disk-size 20
+if (-not $ok) {
+    Write-Host ""
+    Write-Host "Install the missing tools listed above, then re-run this script." -ForegroundColor Yellow
+    exit 1
 }
 
-# Start it if not running
-$running = (podman machine list --format '{{.LastUp}}' 2>$null) -match 'Currently running'
-if (-not $running) {
-    Write-Host "  Starting podman machine..."
-    podman machine start
-}
-Write-Host "  OK - podman machine running"
+Write-Host "  All prerequisites present."
 
-# ---------- 5. Detect LAN IP ----------
-Write-Host "`n[5/8] Detecting this machine's LAN IP..." -ForegroundColor Yellow
+# ---------- 2. Repo root ----------
+$repoRoot = Split-Path -Parent $PSScriptRoot
+Set-Location $repoRoot
+Write-Host "  Repo root: $repoRoot"
+
+# ---------- 3. Detect LAN IP ----------
+Write-Host "`n[2/8] Detecting this machine's LAN IP..." -ForegroundColor Yellow
 $lanIp = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
     Where-Object { $_.PrefixOrigin -in @('Dhcp','Manual') } |
-    Where-Object { $_.IPAddress -notlike '169.254.*' -and $_.IPAddress -notlike '127.*' -and $_.InterfaceAlias -notlike '*vEthernet*' -and $_.InterfaceAlias -notlike '*WSL*' -and $_.InterfaceAlias -notlike '*podman*' } |
+    Where-Object { $_.IPAddress -notlike '169.254.*' -and $_.IPAddress -notlike '127.*' -and $_.InterfaceAlias -notlike '*vEthernet*' } |
     Select-Object -First 1).IPAddress
 if (-not $lanIp) { $lanIp = "127.0.0.1" }
 Write-Host "  Detected: $lanIp"
 
-# ---------- 6. Repo root + .env ----------
-$repoRoot = Split-Path -Parent $PSScriptRoot
-Set-Location $repoRoot
-
-Write-Host "`n[6/8] Preparing .env..." -ForegroundColor Yellow
-if (Test-Path .env) {
-    Write-Host "  .env already exists - leaving it alone. Delete it and re-run to start over."
-} else {
-    if (-not (Test-Path .env.example)) {
-        Write-Host "  ERROR: .env.example not found in $repoRoot" -ForegroundColor Red
-        exit 1
+# ---------- 4. Ensure MongoDB service running ----------
+Write-Host "`n[3/8] Ensuring MongoDB service is running..." -ForegroundColor Yellow
+if ($mongoSvc) {
+    if ($mongoSvc.Status -ne 'Running') {
+        Start-Service "MongoDB"
+        Start-Sleep -Seconds 3
     }
-    Copy-Item .env.example .env
-
-    $jwt = -join ((1..64) | ForEach-Object { '{0:x}' -f (Get-Random -Max 16) })
-    (Get-Content .env) -replace '(?m)^JWT_SECRET=.*', "JWT_SECRET=$jwt" | Set-Content .env
-
-    Write-Host ""
-    $llmKey = Read-Host "  Paste your EMERGENT_LLM_KEY (from https://app.emergent.sh -> Profile -> Universal Key)"
-    (Get-Content .env) -replace '(?m)^EMERGENT_LLM_KEY=.*', "EMERGENT_LLM_KEY=$llmKey" | Set-Content .env
-
-    $ghcrOwner = Read-Host "  Your GitHub username (lower-case, e.g. 'janedoe')"
-    $ghcrOwner = $ghcrOwner.ToLower()
-    (Get-Content .env) -replace '(?m)^# GHCR_OWNER=.*', "GHCR_OWNER=$ghcrOwner" | Set-Content .env
-    (Get-Content .env) -replace '(?m)^# IMAGE_TAG=.*', 'IMAGE_TAG=latest' | Set-Content .env
-
-    (Get-Content .env) -replace '(?m)^CORS_ORIGINS=.*', "CORS_ORIGINS=http://localhost:8080,http://${lanIp}:8080" | Set-Content .env
-
-    Write-Host "  .env created."
+    Set-Service "MongoDB" -StartupType Automatic
+    Write-Host "  MongoDB service is running (auto-start on boot)."
+} else {
+    Write-Host "  WARNING: mongod is on PATH but not installed as a Windows Service." -ForegroundColor Yellow
+    Write-Host "  Re-run the MongoDB installer and tick 'Install as a Service'."
 }
 
-# ---------- 7. Windows Firewall ----------
+# ---------- 5. Backend: virtualenv + pip install ----------
+Write-Host "`n[4/8] Setting up backend virtualenv..." -ForegroundColor Yellow
+$venvDir = Join-Path $repoRoot "backend\.venv"
+if (-not (Test-Path $venvDir)) {
+    python -m venv $venvDir
+}
+$venvPython = Join-Path $venvDir "Scripts\python.exe"
+& $venvPython -m pip install --upgrade pip --quiet
+Write-Host "  Installing Python dependencies (takes 2-3 min)..."
+& $venvPython -m pip install --quiet -r "$repoRoot\backend\requirements.txt"
+Write-Host "  Backend deps installed."
+
+# ---------- 6. backend/.env ----------
+Write-Host "`n[5/8] Writing backend\.env..." -ForegroundColor Yellow
+$backendEnv = Join-Path $repoRoot "backend\.env"
+if (Test-Path $backendEnv) {
+    Write-Host "  backend\.env already exists - leaving it alone. Delete to regenerate."
+} else {
+    $jwt = -join ((1..64) | ForEach-Object { '{0:x}' -f (Get-Random -Max 16) })
+    Write-Host ""
+    $llmKey = Read-Host "  Paste your EMERGENT_LLM_KEY (from https://app.emergent.sh -> Profile -> Universal Key)"
+
+    $envContent = @"
+MONGO_URL=mongodb://localhost:27017
+DB_NAME=narrative_rx
+CORS_ORIGINS=http://localhost:8080,http://${lanIp}:8080
+JWT_SECRET=$jwt
+EMERGENT_LLM_KEY=$llmKey
+ADMIN_EMAIL=admin@dental.com
+ADMIN_PASSWORD=admin123
+SERVE_FRONTEND=1
+MAX_CONCURRENT_LLM=3
+"@
+    Set-Content -Path $backendEnv -Value $envContent -Encoding UTF8
+    Write-Host "  backend\.env created."
+}
+
+# ---------- 7. Frontend build ----------
+Write-Host "`n[6/8] Building the frontend (yarn install + build, takes 3-5 min)..." -ForegroundColor Yellow
+# Same-origin: point REACT_APP_BACKEND_URL at nothing so API calls become /api/...
+$frontendEnv = Join-Path $repoRoot "frontend\.env.production"
+Set-Content -Path $frontendEnv -Value "REACT_APP_BACKEND_URL=" -Encoding UTF8
+
+Push-Location "$repoRoot\frontend"
+try {
+    yarn install --frozen-lockfile 2>&1 | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw "yarn install failed" }
+    yarn build 2>&1 | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw "yarn build failed" }
+} finally {
+    Pop-Location
+}
+Write-Host "  Frontend built to frontend\build\"
+
+# ---------- 8. Windows Firewall ----------
 Write-Host "`n[7/8] Ensuring Windows Firewall allows inbound TCP 8080..." -ForegroundColor Yellow
 $ruleName = "Narrative.Rx (TCP 8080)"
 $existing = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
 if ($existing) {
     Write-Host "  Firewall rule already exists."
 } else {
-    try {
-        New-NetFirewallRule -DisplayName $ruleName -Direction Inbound `
-            -Protocol TCP -LocalPort 8080 -Action Allow -Profile Any -ErrorAction Stop | Out-Null
-        Write-Host "  Firewall rule added."
-    } catch {
-        Write-Host "  Could not add firewall rule (requires Administrator)." -ForegroundColor Yellow
-        Write-Host "  Right-click PowerShell -> Run as Administrator, then run:"
-        Write-Host "    New-NetFirewallRule -DisplayName '$ruleName' -Direction Inbound -Protocol TCP -LocalPort 8080 -Action Allow -Profile Any"
-    }
+    New-NetFirewallRule -DisplayName $ruleName -Direction Inbound `
+        -Protocol TCP -LocalPort 8080 -Action Allow -Profile Any | Out-Null
+    Write-Host "  Firewall rule added."
 }
 
-# ---------- 8. Pull + start ----------
-Write-Host "`n[8/8] Pulling images and starting containers..." -ForegroundColor Yellow
-podman-compose -f docker-compose.yml -f docker-compose.ghcr.yml pull
-podman-compose -f docker-compose.yml -f docker-compose.ghcr.yml up -d
+# ---------- 9. Register the backend as a Windows Service ----------
+Write-Host "`n[8/8] Registering NarrativeRx Windows Service (via NSSM)..." -ForegroundColor Yellow
+$svcName = "NarrativeRx"
+$existingSvc = Get-Service -Name $svcName -ErrorAction SilentlyContinue
+if ($existingSvc) {
+    Write-Host "  Service already exists - stopping to reconfigure..."
+    Stop-Service $svcName -ErrorAction SilentlyContinue
+    nssm remove $svcName confirm | Out-Null
+}
 
-Start-Sleep -Seconds 6
+$logDir = Join-Path $repoRoot "windows\logs"
+if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Force -Path $logDir | Out-Null }
+
+$uvicornArgs = "-m uvicorn server:app --host 0.0.0.0 --port 8080"
+nssm install $svcName $venvPython $uvicornArgs | Out-Null
+nssm set $svcName AppDirectory "$repoRoot\backend" | Out-Null
+nssm set $svcName AppStdout "$logDir\service-stdout.log" | Out-Null
+nssm set $svcName AppStderr "$logDir\service-stderr.log" | Out-Null
+nssm set $svcName AppRotateFiles 1 | Out-Null
+nssm set $svcName AppRotateBytes 5242880 | Out-Null
+nssm set $svcName Start SERVICE_AUTO_START | Out-Null
+nssm set $svcName DisplayName "Narrative.Rx Backend + Web UI" | Out-Null
+nssm set $svcName Description "Dental insurance narrative assistant. Serves web UI + API on TCP 8080." | Out-Null
+nssm set $svcName DependOnService MongoDB | Out-Null
+
+Start-Service $svcName
+Start-Sleep -Seconds 5
+
+$svc = Get-Service -Name $svcName
+if ($svc.Status -ne 'Running') {
+    Write-Host "  Service failed to start. Check logs at $logDir\service-stderr.log" -ForegroundColor Red
+    exit 1
+}
 
 Write-Host "`n=== READY ===" -ForegroundColor Green
 Write-Host ""
@@ -150,6 +195,10 @@ Write-Host ""
 Write-Host "  Demo sign-in:  admin@dental.com  /  admin123"
 Write-Host "  (Change the password on your first login.)"
 Write-Host ""
-Write-Host "  Auto-start on boot: see WINDOWS_INSTALL.md section 'Auto-start' -"
-Write-Host "  we register a Windows Scheduled Task that runs on system startup."
+Write-Host "  Services now running:"
+Write-Host "    - MongoDB       (data store)"
+Write-Host "    - NarrativeRx   (backend + web UI on port 8080)"
+Write-Host ""
+Write-Host "  Both are set to auto-start on boot. Manage them from services.msc"
+Write-Host "  or with the batch files in windows\ (start.bat / stop.bat / update.bat / backup.bat)."
 Write-Host ""

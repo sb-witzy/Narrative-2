@@ -13,7 +13,8 @@ from typing import List, Optional
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response
-from fastapi.responses import Response as StarletteResponse
+from fastapi.responses import Response as StarletteResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, ConfigDict, EmailStr
@@ -661,3 +662,24 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ---------- Serve React build (native / single-process deployment) ----------
+# When SERVE_FRONTEND is truthy and frontend/build exists, this same FastAPI
+# process serves the SPA at /, so a Windows Server install needs only one service.
+# Safe to leave enabled: if the build dir isn't there, this is a no-op.
+FRONTEND_BUILD = ROOT_DIR.parent / "frontend" / "build"
+if os.environ.get("SERVE_FRONTEND", "").lower() in ("1", "true", "yes") and FRONTEND_BUILD.exists():
+    _static_dir = FRONTEND_BUILD / "static"
+    if _static_dir.exists():
+        app.mount("/static", StaticFiles(directory=str(_static_dir)), name="react-static")
+
+    @app.get("/{full_path:path}")
+    async def _spa_fallback(full_path: str):
+        # Never shadow API routes
+        if full_path.startswith("api") or full_path.startswith("static"):
+            raise HTTPException(status_code=404)
+        candidate = FRONTEND_BUILD / full_path
+        if full_path and candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(FRONTEND_BUILD / "index.html")
+

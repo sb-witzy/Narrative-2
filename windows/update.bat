@@ -1,18 +1,39 @@
 @echo off
-REM Pull the latest images from GHCR and restart (Podman + Hyper-V).
+REM Pull the latest code from GitHub, rebuild, and restart the service.
 setlocal
 cd /d "%~dp0.."
-podman machine start 2>nul
-echo Pulling latest images...
-podman-compose -f docker-compose.yml -f docker-compose.ghcr.yml pull
+
+echo Stopping NarrativeRx service...
+net stop NarrativeRx 2>nul
+
+echo Pulling latest code from GitHub...
+git pull
 if errorlevel 1 (
-    echo.
-    echo Pull failed. Are the images public on GHCR? Or did you run `podman login ghcr.io` first?
+    echo git pull failed. Resolve conflicts manually then re-run this script.
+    net start NarrativeRx
     pause
     exit /b 1
 )
-echo Restarting containers with the new images...
-podman-compose -f docker-compose.yml -f docker-compose.ghcr.yml up -d
+
+echo Updating Python dependencies...
+call backend\.venv\Scripts\python.exe -m pip install --quiet -r backend\requirements.txt
+if errorlevel 1 (
+    echo pip install failed. Check messages above.
+    pause
+    exit /b 1
+)
+
+echo Rebuilding frontend (3-5 min)...
+pushd frontend
+call yarn install --frozen-lockfile
+if errorlevel 1 ( popd & echo yarn install failed & pause & exit /b 1 )
+call yarn build
+if errorlevel 1 ( popd & echo yarn build failed & pause & exit /b 1 )
+popd
+
+echo Starting NarrativeRx service...
+net start NarrativeRx
+
 echo.
-echo Narrative.Rx updated.
+echo Update complete. App is live again on http://localhost:8080
 pause

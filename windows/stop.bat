@@ -1,9 +1,8 @@
 @echo off
-REM Stop Narrative.Rx on this machine (Podman + Hyper-V).
+REM Stop Narrative.Rx on this Windows Server (native install).
+REM MongoDB is NOT stopped - other apps may use it.
 setlocal
-cd /d "%~dp0.."
-podman-compose -f docker-compose.yml -f docker-compose.ghcr.yml down
+net stop NarrativeRx
 echo.
-echo Narrative.Rx stopped. Your saved narratives are safe in the mongo-data volume.
-echo (The podman machine (Hyper-V VM) is still running. Stop it too with:  podman machine stop)
+echo Narrative.Rx stopped. Your data is safe in the local MongoDB.
 pause
