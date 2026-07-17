@@ -13,9 +13,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
         && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies first (better layer caching)
+# Install Python dependencies first (better layer caching).
+# emergentintegrations is hosted on Emergent's private index — we pass it as
+# --extra-index-url so pip still tries PyPI first for every other package.
 COPY requirements.txt .
-RUN pip install --upgrade pip && pip install -r requirements.txt
+RUN pip install --upgrade pip && \
+    pip install -r requirements.txt \
+        --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/
 
 # Copy application code
 COPY . .
