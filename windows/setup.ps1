@@ -1,0 +1,105 @@
+# Narrative.Rx — Windows first-time setup
+# Run this once from PowerShell:
+#   cd C:\path\to\narrative-rx
+#   powershell -ExecutionPolicy Bypass -File .\windows\setup.ps1
+
+$ErrorActionPreference = "Stop"
+
+Write-Host "`n=== Narrative.Rx — Windows setup ===" -ForegroundColor Cyan
+
+# ---------- 1. Docker Desktop ----------
+Write-Host "`n[1/6] Checking Docker Desktop..." -ForegroundColor Yellow
+try {
+    docker version --format '{{.Server.Version}}' *> $null
+} catch {
+    Write-Host "  ERROR: Docker is not running." -ForegroundColor Red
+    Write-Host "  Install Docker Desktop from https://www.docker.com/products/docker-desktop"
+    Write-Host "  Open Docker Desktop, wait for the whale icon to stop animating, then re-run this script."
+    exit 1
+}
+Write-Host "  OK"
+
+# ---------- 2. Detect LAN IP ----------
+Write-Host "`n[2/6] Detecting this machine's LAN IP..." -ForegroundColor Yellow
+$lanIp = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+    Where-Object { $_.PrefixOrigin -in @('Dhcp','Manual') } |
+    Where-Object { $_.IPAddress -notlike '169.254.*' -and $_.IPAddress -notlike '127.*' } |
+    Select-Object -First 1).IPAddress
+if (-not $lanIp) { $lanIp = "127.0.0.1" }
+Write-Host "  Detected: $lanIp"
+
+# ---------- 3. Repo root ----------
+$repoRoot = Split-Path -Parent $PSScriptRoot
+Set-Location $repoRoot
+
+# ---------- 4. .env ----------
+Write-Host "`n[3/6] Preparing .env..." -ForegroundColor Yellow
+if (Test-Path .env) {
+    Write-Host "  .env already exists — leaving it alone. Delete it and re-run to start over."
+} else {
+    if (-not (Test-Path .env.example)) {
+        Write-Host "  ERROR: .env.example not found in $repoRoot" -ForegroundColor Red
+        exit 1
+    }
+    Copy-Item .env.example .env
+
+    # JWT secret — 64 hex chars
+    $jwt = -join ((1..64) | ForEach-Object { '{0:x}' -f (Get-Random -Max 16) })
+    (Get-Content .env) -replace '(?m)^JWT_SECRET=.*', "JWT_SECRET=$jwt" | Set-Content .env
+
+    # Emergent LLM key
+    Write-Host ""
+    $llmKey = Read-Host "  Paste your EMERGENT_LLM_KEY (from https://app.emergent.sh -> Profile -> Universal Key)"
+    (Get-Content .env) -replace '(?m)^EMERGENT_LLM_KEY=.*', "EMERGENT_LLM_KEY=$llmKey" | Set-Content .env
+
+    # GHCR owner (GitHub username, lower-case)
+    $ghcrOwner = Read-Host "  Your GitHub username (lower-case, e.g. 'janedoe')"
+    $ghcrOwner = $ghcrOwner.ToLower()
+    (Get-Content .env) -replace '(?m)^# GHCR_OWNER=.*', "GHCR_OWNER=$ghcrOwner" | Set-Content .env
+    (Get-Content .env) -replace '(?m)^# IMAGE_TAG=.*', 'IMAGE_TAG=latest' | Set-Content .env
+
+    # CORS — allow same-origin from localhost AND from the LAN IP
+    (Get-Content .env) -replace '(?m)^CORS_ORIGINS=.*', "CORS_ORIGINS=http://localhost:8080,http://${lanIp}:8080" | Set-Content .env
+
+    Write-Host "  .env created."
+}
+
+# ---------- 5. Windows Firewall ----------
+Write-Host "`n[4/6] Ensuring Windows Firewall allows inbound TCP 8080..." -ForegroundColor Yellow
+$ruleName = "Narrative.Rx (TCP 8080)"
+$existing = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
+if ($existing) {
+    Write-Host "  Firewall rule already exists."
+} else {
+    try {
+        New-NetFirewallRule -DisplayName $ruleName -Direction Inbound `
+            -Protocol TCP -LocalPort 8080 -Action Allow -Profile Any -ErrorAction Stop | Out-Null
+        Write-Host "  Firewall rule added."
+    } catch {
+        Write-Host "  Could not add firewall rule (requires Administrator)." -ForegroundColor Yellow
+        Write-Host "  Right-click PowerShell -> Run as Administrator, then run:"
+        Write-Host "    New-NetFirewallRule -DisplayName '$ruleName' -Direction Inbound -Protocol TCP -LocalPort 8080 -Action Allow -Profile Any"
+    }
+}
+
+# ---------- 6. Pull + start ----------
+Write-Host "`n[5/6] Pulling Docker images (first pull is 2-4 minutes)..." -ForegroundColor Yellow
+docker compose -f docker-compose.yml -f docker-compose.ghcr.yml pull
+
+Write-Host "`n[6/6] Starting Narrative.Rx..." -ForegroundColor Yellow
+docker compose -f docker-compose.yml -f docker-compose.ghcr.yml up -d
+
+Start-Sleep -Seconds 6
+
+Write-Host "`n=== READY ===" -ForegroundColor Green
+Write-Host ""
+Write-Host "  On this machine:      " -NoNewline; Write-Host "http://localhost:8080" -ForegroundColor Cyan
+Write-Host "  From other office PCs: " -NoNewline; Write-Host "http://${lanIp}:8080" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "  Demo sign-in:  admin@dental.com  /  admin123"
+Write-Host "  (Change the password on your first login.)"
+Write-Host ""
+Write-Host "  Auto-start on boot: open Docker Desktop -> Settings -> General ->"
+Write-Host "  tick 'Start Docker Desktop when you log in'. The containers already have"
+Write-Host "  restart: unless-stopped so they'll come back automatically."
+Write-Host ""
