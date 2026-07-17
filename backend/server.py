@@ -234,7 +234,7 @@ async def register(payload: RegisterRequest, request: Request, response: Respons
     access = auth_mod.create_access_token(user_id, email)
     refresh = auth_mod.create_refresh_token(user_id)
     auth_mod.set_auth_cookies(response, access, refresh, secure=auth_mod.cookie_secure_for(request))
-    return _user_out(doc)
+    return {**_user_out(doc), "access_token": access}
 
 
 @auth_router.post("/login")
@@ -262,7 +262,7 @@ async def login(payload: LoginRequest, request: Request, response: Response):
         secure=auth_mod.cookie_secure_for(request),
         remember=payload.remember,
     )
-    return _user_out(user)
+    return {**_user_out(user), "access_token": access}
 
 
 @auth_router.post("/logout")
@@ -299,7 +299,7 @@ async def refresh_token(request: Request, response: Response):
         secure=auth_mod.cookie_secure_for(request),
         remember=remember,
     )
-    return _user_out(user)
+    return {**_user_out(user), "access_token": access}
 
 
 app.include_router(auth_router)

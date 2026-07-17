@@ -1,0 +1,47 @@
+{
+  "summary": "Iteration 10 tests the Bearer-token fallback fix for the 'logs me out on Generate click' bug. Backend implementation is CORRECT and fully verified (9/9 pytest passing) — /api/auth/login|register|refresh return access_token in body, and /api/auth/me + /api/generate accept Authorization: Bearer <token> without any cookies. HOWEVER, the FRONTEND fix is INCOMPLETE — the promised call to setBearerToken(...) after login/register is missing from /app/frontend/src/lib/api.js, so the module-scope bearerToken stays null. The critical bug repro (login -> delete both auth cookies -> click Generate) FAILED: /api/generate returned 401, auto-refresh returned 401, user was redirected to /login?reason=expired — exactly the behaviour the fix was supposed to eliminate. Additional show-stopper found before testing: /app/frontend/src/lib/api.js had duplicated garbage tail lines (159-163) that prevented the frontend from compiling; I removed them to unblock testing (see updated_files).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Bearer-token fallback after login (primary bug fix)",
+        "issue": "authLogin and authRegister in /app/frontend/src/lib/api.js never call setBearerToken with the access_token returned in the response body. Result: bearerToken remains null after login, so when browsers drop cookies the request interceptor has nothing to attach and the app 401s -> refresh 401s -> user is redirected to /login. Live browser repro confirmed: after clearing both auth cookies post-login, /api/generate returned 401 and page navigated to /login?reason=expired&from=%2F. Backend correctly returns access_token in the login body; the gap is purely frontend wiring.",
+        "affected_selectors": ["[data-testid=\"generate-btn\"]"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_iter10_test.py",
+    "/app/backend/tests/backend_iter8_test.py",
+    "/app/test_reports/pytest/iter10_results.xml"
+  ],
+  "action_items": [
+    "In /app/frontend/src/lib/api.js, wire setBearerToken into the auth calls, e.g.: export const authLogin = (email, password, remember=false) => api.post('/auth/login', {email, password, remember}).then((r) => { if (r.data?.access_token) setBearerToken(r.data.access_token); return r.data; }); Do the same for authRegister, and call setBearerToken(null) inside authLogout (in addition to the existing refresh-failure clear).",
+    "After the frontend wiring is added, retest the primary repro: login, clear both auth cookies via browser DevTools (or Playwright context.clear_cookies), click Generate on D2740 with clinical findings — narrative must render (200) and URL must stay on /.",
+    "Optional hardening: also call setBearerToken(newToken) after a successful login response in the response interceptor as a belt-and-suspenders, so any future direct api.post('/auth/login') call is also covered."
+  ],
+  "critical_code_review_comments": [
+    "/app/frontend/src/lib/api.js was uncompilable when I arrived (duplicate tail lines 159-163 with a stray fragment 'id || \"draft\").slice(0, 8)}.txt`);'). Removed. Please review your merge/copy step — appears a partial paste was left behind.",
+    "The core promise of the review request ('authLogin/authRegister call setBearerToken with token from response') is NOT reflected in the committed code. Only the refresh interceptor stores the token. This makes the Bearer fallback a no-op for the very scenario it was designed for (users whose cookies are dropped BEFORE any refresh has run).",
+    "Backend implementation is clean: server.py::register/login/refresh all spread {**_user_out(user), 'access_token': access}. auth.py::_extract_token correctly falls back to 'Authorization: Bearer' when the access_token cookie is missing."
+  ],
+  "updated_files": [
+    "/app/frontend/src/lib/api.js (removed duplicated broken tail lines 159-163 so the frontend could compile — no functional change)",
+    "/app/backend/tests/backend_iter10_test.py (new — 9 tests for Bearer fallback, 100% passing)"
+  ],
+  "success_rate": {
+    "backend": "100% (9/9 iter10 + 6/6 iter8 regression pytest)",
+    "frontend": "50% (regression: normal login+generate with cookies OK; primary bug repro FAILED — still redirects to /login when cookies are dropped)"
+  },
+  "test_credentials": "admin@dental.com / admin123 (seeded)",
+  "seed_data_creation": "TestRegisterReturnsAccessToken creates a one-off TEST_iter10_<uuid>@dental.com user per run. Not cleaned up — main agent may want to purge on next MongoDB reset.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend Bearer fallback is DONE and verified — do NOT retest it. Frontend still needs the setBearerToken hookup in authLogin/authRegister/authLogout in /app/frontend/src/lib/api.js. Reproduce via Playwright: login via UI -> ctx.clear_cookies() -> click generate-btn -> assert page URL still starts with '/' (not '/login') and /api/generate response is 200. Regression suite: /app/backend/tests/backend_iter10_test.py and backend_iter8_test.py (run: pytest /app/backend/tests/backend_iter10_test.py -v).",
+  "rca of the issue": "ROOT CAUSE: /app/frontend/src/lib/api.js exports setBearerToken but never calls it in authLogin/authRegister. The interceptor at line 20-25 attaches 'Authorization: Bearer <token>' only if bearerToken is non-null. Since login never populates bearerToken, the Bearer fallback is inert until a refresh happens — but refresh itself needs the refresh_token cookie, which is also dropped in the bug scenario. Fix: wire setBearerToken(r.data.access_token) into authLogin and authRegister (see action_items). REPRO STEPS: (1) login at /login as admin@dental.com/admin123, (2) DevTools -> Application -> Cookies -> delete access_token AND refresh_token, (3) fill D2740 + clinical findings + tooth #14, (4) click 'Generate narrative'. OBSERVED: /api/generate 401 -> /api/auth/refresh 401 -> browser navigates to /login?reason=expired. EXPECTED (per fix): /api/generate returns 200 with narrative because axios attaches Authorization: Bearer from the in-memory token captured during login."
+}

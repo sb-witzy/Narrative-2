@@ -3,10 +3,25 @@ import axios from "axios";
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 export const API = `${BACKEND_URL}/api`;
 
+// In-memory bearer token fallback. Used when cookies are blocked or dropped by strict
+// browser policies. Kept in module scope (not localStorage) to reduce XSS blast radius —
+// on hard page refresh we rely on the httpOnly refresh cookie to re-issue a token.
+let bearerToken = null;
+export const setBearerToken = (token) => { bearerToken = token || null; };
+export const getBearerToken = () => bearerToken;
+
 export const api = axios.create({
   baseURL: API,
   headers: { "Content-Type": "application/json" },
   withCredentials: true,
+});
+
+// Attach Authorization header if we have a bearer token in memory
+api.interceptors.request.use((config) => {
+  if (bearerToken && !config.headers?.Authorization) {
+    config.headers = { ...(config.headers || {}), Authorization: `Bearer ${bearerToken}` };
+  }
+  return config;
 });
 
 // Auto-refresh access token on 401. If refresh fails, redirect to /login.
@@ -48,11 +63,14 @@ api.interceptors.response.use(
     original._retry = true;
     isRefreshing = true;
     try {
-      await api.post("/auth/refresh");
+      const refreshRes = await api.post("/auth/refresh");
+      const newToken = refreshRes?.data?.access_token;
+      if (newToken) setBearerToken(newToken);
       processQueue(null);
       return api(original);
     } catch (refreshErr) {
       processQueue(refreshErr);
+      setBearerToken(null);
       if (typeof window !== "undefined" &&
           !window.location.pathname.startsWith("/login") &&
           !window.location.pathname.startsWith("/register")) {
