@@ -7,9 +7,13 @@ WORKDIR /app
 # Enable corepack so we can use yarn out of the box
 RUN corepack enable
 
-# Install deps first for better layer caching
-COPY package.json yarn.lock ./
-RUN yarn install --frozen-lockfile
+# Install deps first for better layer caching.
+# yarn.lock* uses a wildcard so the build tolerates a missing lock file — we still
+# prefer a committed lock file for reproducibility, but the build no longer breaks
+# if it hasn't been committed yet (common with fresh GitHub pushes).
+COPY package.json ./
+COPY yarn.lock* ./
+RUN yarn install --network-timeout 600000
 
 # Copy source
 COPY . .
