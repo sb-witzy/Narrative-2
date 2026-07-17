@@ -1,8 +1,8 @@
-# Narrative.Rx - Windows Server install (Rancher Desktop)
+# Narrative.Rx - Windows Server install (Podman + Hyper-V, no WSL)
 
-This is the "put it on the office server and have every staff PC hit it over the LAN" guide, written for **Windows Server 2019 / 2022 / 2025**.
+This is the "put it on the office server and have every staff PC hit it over the LAN" guide, written for **Windows Server 2019 / 2022 / 2025** where **WSL2 is not available**.
 
-Docker Desktop is **not allowed on Windows Server** (both licensing and platform). We use **Rancher Desktop** instead - free, no license fee, provides the same `docker` and `docker compose` CLIs, so every script in this repo Just Works.
+We use **Podman** (free, open-source) with the **Hyper-V** provider. Podman runs a tiny Linux VM in Hyper-V that hosts the containers. From the user's perspective, `podman` behaves like `docker`.
 
 **Result:** one Windows Server machine runs the app. Any staff PC on the same LAN opens `http://<office-server-ip>:8080`.
 
@@ -10,140 +10,142 @@ Docker Desktop is **not allowed on Windows Server** (both licensing and platform
 
 ## What you need
 
-- **Windows Server 2019 (build 17763+), 2022, or 2025** - kept powered on during clinic hours
-- **4 GB free RAM, 10 GB free disk**
-- The server reachable from other office PCs on the same LAN
-- **Local Administrator** rights on the server (for WSL2 install and firewall rule)
+- **Windows Server 2019 (build 17763+), 2022, or 2025** kept powered on during clinic hours
+- **CPU with virtualization support enabled in BIOS** (VT-x on Intel, AMD-V on AMD) - required for Hyper-V
+- **6 GB free RAM, 25 GB free disk** (Hyper-V VM gets 4 GB, containers get the rest)
+- **Local Administrator** on the server (needed to install Hyper-V + open the firewall)
 - Your **EMERGENT_LLM_KEY** - grab from https://app.emergent.sh -> Profile -> **Universal Key**
-- Your **GitHub username** (the account whose GHCR packages host the Docker images)
+- Your **GitHub username** (the account whose GHCR packages host the images)
 
 ---
 
-## First-time install (~20 minutes, done once)
+## First-time install (~30 minutes total, done once)
 
-### Step 1 - Enable WSL2 (Windows Subsystem for Linux)
+### Step 1 - Install the Hyper-V role (~5 min + one reboot)
 
-Rancher Desktop needs WSL2 to host the Linux VM that runs `dockerd`. On Windows Server WSL2 is opt-in.
-
-1. Right-click Start -> **Windows PowerShell (Admin)**
-2. Run:
-   ```powershell
-   wsl --install --no-distribution
-   ```
-   > On Server 2019: this may not exist. Instead run:
-   > ```powershell
-   > Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Windows-Subsystem-Linux -All -NoRestart
-   > Enable-WindowsOptionalFeature -Online -FeatureName VirtualMachinePlatform -All -NoRestart
-   > ```
-   > Then reboot, then run `wsl --set-default-version 2`, then `wsl --update`.
-3. **Reboot** when prompted.
-4. After reboot, verify:
-   ```powershell
-   wsl --status
-   ```
-   It should print `Default Version: 2`.
-
-### Step 2 - Install Rancher Desktop
-
-1. Download the Windows installer: https://github.com/rancher-sandbox/rancher-desktop/releases (grab the latest `.msi`)
-   > Or via winget: `winget install SUSE.RancherDesktop`
-2. Install with defaults (yes to WSL integration when asked)
-3. Launch **Rancher Desktop** from the Start menu. It'll take ~2 min the first time to provision its WSL VM.
-4. When the setup wizard appears:
-   - **Kubernetes:** untick "Enable Kubernetes" (we don't need it - saves ~1 GB RAM)
-   - **Container Engine:** choose **`dockerd (moby)`** ← important, this is what gives you the `docker` CLI
-   - Click **Accept**
-5. Wait until the tray icon (bottom-right, looks like a cow silhouette) shows **"Container engine running"** (right-click it to see status).
-6. Open Rancher Desktop -> **Preferences (⚙)** -> **Application**:
-   - Tick ✅ **"Start at login"**
-   - Tick ✅ **"Start in background"**
-   - Click **Apply**
-
-### Step 3 - Get the code
-
-1. Install Git if not present: https://git-scm.com/download/win (defaults are fine)
-2. PowerShell (Admin) again:
-   ```powershell
-   cd C:\
-   git clone https://github.com/<your-username>/narrative-rx.git
-   cd narrative-rx
-   ```
-
-### Step 4 - Run the setup script
-
-Still in **PowerShell (Admin)**:
+Right-click Start -> **Windows PowerShell (Admin)**:
 
 ```powershell
-cd C:\narrative-rx
+Install-WindowsFeature -Name Hyper-V -IncludeManagementTools -Restart
+```
+
+The server **will reboot automatically**. Log back in when it comes back up.
+
+Verify Hyper-V is up:
+```powershell
+Get-WindowsFeature Hyper-V | Format-Table Name, InstallState
+```
+Should say `Installed`.
+
+> **If this errors with "Hyper-V cannot be installed":** virtualization is disabled in BIOS. Reboot into BIOS/UEFI (usually F2/Del at boot), enable **Intel VT-x** or **AMD-V** (sometimes called "SVM"), save, then re-run the install command. If you're already inside a VM, enable **nested virtualization** on the host.
+
+### Step 2 - Install Podman for Windows (~3 min)
+
+1. Download the latest **Podman for Windows** installer: https://github.com/containers/podman/releases (grab the file named `podman-<version>-setup.exe`)
+2. Run it, accept defaults
+3. Close and reopen PowerShell (Admin) so `podman` shows up on PATH
+4. Verify:
+   ```powershell
+   podman --version
+   ```
+   Should print something like `podman version 5.4.x`.
+
+### Step 3 - Install Python (for podman-compose) (~3 min)
+
+1. Download: https://www.python.org/downloads/windows/ (any 3.10+)
+2. Run the installer -- **tick "Add python.exe to PATH"** on the first screen -- and click Install
+3. Close and reopen PowerShell (Admin)
+4. Verify:
+   ```powershell
+   python --version
+   ```
+
+### Step 4 - Get the code
+
+```powershell
+cd C:\
+git clone https://github.com/<your-username>/narrative-rx.git
+cd narrative-rx
+```
+
+> If Git isn't installed: https://git-scm.com/download/win (defaults are fine)
+
+### Step 5 - Run the setup script (~5 min)
+
+Still in **PowerShell (Admin)** and in the repo folder:
+
+```powershell
 powershell -ExecutionPolicy Bypass -File .\windows\setup.ps1
 ```
 
 The script:
-- Verifies the docker CLI is available and `dockerd` is responding
-- Detects the server's LAN IP (skips WSL / vEthernet virtual adapters)
-- Generates a 64-char JWT secret
-- **Prompts for your Emergent LLM key**
-- **Prompts for your GitHub username** (lowercase)
+- Verifies Hyper-V is installed
+- Verifies `podman` is on PATH
+- `pip install podman-compose` if not already installed
+- Runs `podman machine init --rootful --provider hyperv --cpus 2 --memory 4096 --disk-size 20`  (creates the Linux VM inside Hyper-V, takes ~2 min the first time)
+- Runs `podman machine start`
+- Detects the server's LAN IP (skips virtual/vEthernet adapters)
+- Prompts for your **Emergent LLM key** and **GitHub username**
 - Writes `.env` with correct CORS origins
 - Opens Windows Firewall inbound TCP 8080
-- Pulls the two images from GHCR (~2-4 min the first time)
-- Starts the stack in the background
+- Pulls the images from GHCR and starts the stack
 
-When done, you'll see:
+When done you'll see:
 ```
 === READY ===
   On this machine:      http://localhost:8080
   From other office PCs: http://192.168.1.50:8080
 ```
 
-**Write those two URLs down.**
+**Save both URLs.**
 
-### Step 5 - Verify
+### Step 6 - Verify
 
-1. On the server, open `http://localhost:8080` in Edge/Chrome -> login screen appears
-2. On any other office PC on the same LAN, open `http://192.168.1.50:8080` (use your real IP) -> same screen
-3. Sign in with the seeded admin:
-   - Email: `admin@dental.com`
-   - Password: `admin123`
-4. Register a real practice account under **Sign Up**, log in as that, then delete or rotate the admin.
+1. On the server, open `http://localhost:8080` -> login screen
+2. On any other office PC on the same LAN, open `http://192.168.1.50:8080` (your real IP) -> same screen
+3. Sign in as `admin@dental.com` / `admin123`
+4. Register your real practice account under **Sign Up**, then rotate/delete the seeded admin
 
-### Step 6 - Bookmark on each staff PC
+### Step 7 - Bookmark on staff PCs
 
-- Open the LAN URL
+- Open the LAN URL on each reception/biller PC
 - Bookmark as **"Narrative.Rx"**
-- Optional: Chrome/Edge -> **⋮** menu -> **Install app** -> gives you a taskbar icon that looks native (no browser chrome, cleaner for reception staff)
+- Optional: Chrome/Edge -> **⋮** -> **Install app** -> gives you a native-looking taskbar shortcut
 
 ---
 
 ## Daily operation
 
-Everything's in `C:\narrative-rx\windows\` - double-click any of these:
+All scripts live in `C:\narrative-rx\windows\` - double-click any of them:
 
-| File | Does |
+| File | What it does |
 |---|---|
-| `start.bat` | Bring the stack up (only needed if Rancher Desktop's autostart is off) |
-| `stop.bat` | Clean shutdown - data preserved in the Docker volume |
-| `update.bat` | Pull the latest images from GHCR and restart |
-| `backup.bat` | Snapshot MongoDB to `windows\backups\narrative_rx_YYYY-MM-DD_HHMM.gz` |
+| `start.bat` | Starts the podman machine (if stopped) and brings the stack up |
+| `stop.bat` | Cleanly stops the containers (data is preserved in the volume) |
+| `update.bat` | Pulls the latest images from GHCR and restarts the stack |
+| `backup.bat` | Snapshots MongoDB to `windows\backups\narrative_rx_YYYY-MM-DD_HHMM.gz` |
 
-**Recommendation:** run `backup.bat` every Friday and copy the resulting `.gz` off the server (OneDrive, network share, USB).
+**Recommendation:** run `backup.bat` every Friday and copy the resulting `.gz` off the server (OneDrive, USB, network share).
 
 ---
 
-## Auto-start on boot
+## Auto-start on system boot
 
-Because Rancher Desktop needs an interactive Windows session to run its WSL VM, the auto-start chain is:
+**Podman on Windows does not auto-start by default** - unlike Docker Desktop, there's no tray app. We register a Windows Scheduled Task that runs `start.bat` at system startup.
 
-1. **Server boots** -> Windows logs into the service account
-2. **Rancher Desktop** launches (because you ticked "Start at login" + "Start in background" in Step 2)
-3. **dockerd** comes up inside the WSL VM
-4. **Compose containers** restart automatically thanks to `restart: unless-stopped` in `docker-compose.yml`
+Run this in an **Administrator PowerShell** (once):
 
-Test it: **Restart the server**. Wait 2 minutes. Visit `http://localhost:8080` from the server console. Should load. If not, log in interactively once - Rancher Desktop won't start under a locked / signed-out session.
+```powershell
+$action = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c C:\narrative-rx\windows\start.bat" -WorkingDirectory "C:\narrative-rx"
+$trigger = New-ScheduledTaskTrigger -AtStartup
+$principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
+$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 2)
+Register-ScheduledTask -TaskName "NarrativeRx-AutoStart" -Action $action -Trigger $trigger -Principal $principal -Settings $settings
+```
 
-If the server is **domain-joined and normally sits at the login screen**, either:
-- Enable Windows **auto-login** for the service account (`netplwiz` -> untick "Users must enter a user name..."), OR
-- Use a **console session keeper** (`autologon.exe` from Sysinternals) so Rancher Desktop always has a session to run in.
+**Test it:** reboot the server. After ~90 seconds visit `http://localhost:8080` from the console - it should load. The delay is Hyper-V spinning up the podman VM.
+
+To remove later: `Unregister-ScheduledTask -TaskName "NarrativeRx-AutoStart" -Confirm:$false`
 
 ---
 
@@ -153,7 +155,7 @@ If the server is **domain-joined and normally sits at the login screen**, either
 ipconfig | findstr /R /C:"IPv4 Address"
 ```
 
-Ignore any lines from **WSL** or **vEthernet** adapters - use the physical Ethernet / WiFi one.
+Ignore any lines for **vEthernet**, **podman**, or virtual adapters - use the physical Ethernet/WiFi one.
 
 **Better long-term:** set a **DHCP reservation** on the router so the server always gets the same LAN IP.
 
@@ -161,54 +163,63 @@ Ignore any lines from **WSL** or **vEthernet** adapters - use the physical Ether
 
 ## Troubleshooting
 
-**`docker: not recognized`**
-Rancher Desktop hasn't finished starting, or the "Container Engine" is set to `containerd` instead of `dockerd (moby)`. Open Rancher Desktop -> Preferences -> **Container Engine** -> pick **`dockerd (moby)`** -> Apply -> wait 30 sec.
+**`Install-WindowsFeature: Hyper-V cannot be installed`**
+Virtualization is disabled in BIOS/UEFI. Reboot -> BIOS -> enable **Intel VT-x** or **AMD-V** (may be called "SVM Mode") -> save -> retry. If already in a VM, enable nested virtualization on the parent host.
 
-**Rancher Desktop refuses to start / "WSL2 is not installed"**
-Reopen an admin PowerShell:
+**`podman machine start` fails with `Error: hyperv: exit status 1`**
+Almost always means Hyper-V's Virtual Machine Management Service isn't running:
 ```powershell
-wsl --update
-wsl --set-default-version 2
+Start-Service vmms
+Set-Service vmms -StartupType Automatic
 ```
-Then relaunch Rancher Desktop.
+Then retry.
 
-**`denied: permission_denied: read_package` when pulling images**
+**`podman: command not found` after installing Podman**
+You need to close and reopen PowerShell for the PATH update to take effect. Or manually run `refreshenv` if you have Chocolatey installed.
+
+**`podman-compose: command not found` after `pip install`**
+Python's Scripts folder isn't on PATH. Either reinstall Python with the "Add Python to PATH" box ticked, or manually add `C:\Users\<you>\AppData\Local\Programs\Python\Python3XX\Scripts` to PATH.
+
+**`denied: permission_denied: read_package` when pulling from GHCR**
 Your GHCR packages are private. Either:
-- Make them public: GitHub -> your profile -> **Packages** -> pick each package -> **Package settings** -> **Change visibility** -> Public
-- Or authenticate once on the server:
+- Make them public: GitHub -> Profile -> **Packages** -> each package -> **Package settings** -> **Change visibility** -> Public
+- Or authenticate once:
   ```powershell
   $env:GHCR_PAT = "ghp_YOUR_CLASSIC_TOKEN_WITH_read:packages_SCOPE"
-  $env:GHCR_PAT | docker login ghcr.io -u <your-username> --password-stdin
+  $env:GHCR_PAT | podman login ghcr.io -u <your-username> --password-stdin
   ```
 
 **Staff PCs can't reach `http://<server-ip>:8080`**
-- Confirm they're on the same subnet (`ipconfig` on both, first 3 octets match)
-- Windows Firewall blocked port 8080. Re-run `setup.ps1` as **Administrator**, or one-liner:
+- Same subnet? Compare `ipconfig` on server and client - first 3 octets should match
+- Firewall rule missing - re-run `setup.ps1` **as Administrator**, or one-liner:
   ```powershell
   New-NetFirewallRule -DisplayName 'Narrative.Rx (TCP 8080)' -Direction Inbound -Protocol TCP -LocalPort 8080 -Action Allow -Profile Any
   ```
-- Some corporate AV suites (Sophos, CrowdStrike) block inbound container traffic. Add an exclusion for the Rancher Desktop process.
+- Some AV suites (Sophos, CrowdStrike) block inbound container traffic - add an exception for `gvproxy.exe` (Podman's port forwarder, in `C:\Program Files\RedHat\Podman\`)
 
-**Port 8080 already in use (IIS, SolidWorks License Manager, etc.)**
-Edit `.env` and change:
+**Port 8080 already in use (IIS License Manager, etc.)**
+Edit `.env`:
 ```
 WEB_PORT=8090
 CORS_ORIGINS=http://localhost:8090,http://192.168.1.50:8090
 ```
-Then `windows\stop.bat` then `windows\start.bat`. Also update your firewall rule to 8090 and re-bookmark on staff PCs.
+Run `windows\stop.bat` then `windows\start.bat`. Update the firewall rule to 8090 and re-bookmark on staff PCs.
 
-**Everything stopped - how to fully reset without losing data**
+**Everything is broken - how to fully reset the container stack (keeps data)**
 ```powershell
 cd C:\narrative-rx
-docker compose -f docker-compose.yml -f docker-compose.ghcr.yml down
-docker compose -f docker-compose.yml -f docker-compose.ghcr.yml up -d
+podman-compose -f docker-compose.yml -f docker-compose.ghcr.yml down
+podman-compose -f docker-compose.yml -f docker-compose.ghcr.yml up -d
 ```
 
 **Restore from a backup**
 ```powershell
-docker exec -i narrative-rx-mongo mongorestore --archive --gzip --db narrative_rx `
+podman exec -i narrative-rx-mongo mongorestore --archive --gzip --db narrative_rx `
     < windows\backups\narrative_rx_2026-02-14_1830.gz
 ```
+
+**"Where is my Mongo data actually stored?"**
+Inside the podman Hyper-V VM, in a named volume `mongo-data`. It's not a folder on the Windows host. That's why backups use `podman exec ... mongodump` streamed to a Windows file - it's the portable way to get data out.
 
 ---
 
@@ -216,9 +227,12 @@ docker exec -i narrative-rx-mongo mongorestore --archive --gzip --db narrative_r
 
 ```powershell
 cd C:\narrative-rx
-docker compose -f docker-compose.yml -f docker-compose.ghcr.yml down -v   # -v also drops the mongo volume - data is gone
+podman-compose -f docker-compose.yml -f docker-compose.ghcr.yml down -v   # -v also drops the mongo volume - data is gone
+podman machine stop
+podman machine rm --force
 cd C:\
 Remove-Item -Recurse -Force C:\narrative-rx
+Unregister-ScheduledTask -TaskName "NarrativeRx-AutoStart" -Confirm:$false 2>$null
 ```
 
-Uninstall Rancher Desktop from **Settings -> Apps -> Installed apps** if you no longer need it.
+Uninstall Podman from **Settings -> Apps -> Installed apps** if you don't need it anymore. Remove the Hyper-V role with `Uninstall-WindowsFeature -Name Hyper-V -Restart` (requires reboot).
