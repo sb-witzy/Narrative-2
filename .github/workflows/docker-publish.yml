@@ -22,7 +22,7 @@ permissions:
 
 jobs:
   build-and-push:
-    name: Build ${{ matrix.image }} for ${{ env.PLATFORMS }}
+    name: Build ${{ matrix.image }} for linux/amd64,linux/arm64
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
