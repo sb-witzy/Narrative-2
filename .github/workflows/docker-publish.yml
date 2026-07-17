@@ -42,6 +42,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Ensure yarn.lock exists (frontend only)
+        if: matrix.image == 'narrative-rx-frontend'
+        run: |
+          if [ ! -f frontend/yarn.lock ]; then
+            echo "::warning::frontend/yarn.lock is missing from the git checkout."
+            echo "Creating an empty placeholder so BuildKit's COPY step can proceed."
+            echo "Commit a real yarn.lock (\`yarn install\` locally then \`git add frontend/yarn.lock\`) for reproducible builds."
+            touch frontend/yarn.lock
+          fi
+
       - name: Set up QEMU (for multi-arch)
         uses: docker/setup-qemu-action@v3
 
