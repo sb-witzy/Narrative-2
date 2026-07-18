@@ -210,12 +210,14 @@ export default function History() {
                   label="Short narrative"
                   testid="dlg-short"
                   text={selected.short_narrative}
+                  subjectHint={`CDT ${selected.procedure_code} — ${selected.procedure_name}${selected.tooth_number ? ` · Tooth #${selected.tooth_number}` : ""}`}
                   onChange={(v) => onEdit(selected.id, "short_narrative", v)}
                 />
                 <NarrativeCard
                   label="Long narrative"
                   testid="dlg-long"
                   text={selected.long_narrative}
+                  subjectHint={`CDT ${selected.procedure_code} — ${selected.procedure_name}${selected.tooth_number ? ` · Tooth #${selected.tooth_number}` : ""}`}
                   onChange={(v) => onEdit(selected.id, "long_narrative", v)}
                 />
 

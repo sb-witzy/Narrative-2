@@ -316,12 +316,14 @@ export default function BulkVisit() {
                   label="Short"
                   testid={`bulk-short-${i}`}
                   text={rec.short_narrative}
+                  subjectHint={`CDT ${rec.procedure_code} — ${rec.procedure_name}${rec.tooth_number ? ` · Tooth #${rec.tooth_number}` : ""}`}
                   onChange={(v) => onEditRecord(rec.id, "short_narrative", v)}
                 />
                 <NarrativeCard
                   label="Long"
                   testid={`bulk-long-${i}`}
                   text={rec.long_narrative}
+                  subjectHint={`CDT ${rec.procedure_code} — ${rec.procedure_name}${rec.tooth_number ? ` · Tooth #${rec.tooth_number}` : ""}`}
                   onChange={(v) => onEditRecord(rec.id, "long_narrative", v)}
                 />
                 <RadiographPanel radiographs={rec.radiographs} />

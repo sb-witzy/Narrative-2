@@ -300,6 +300,7 @@ export default function Dashboard() {
           label="Short narrative"
           testid="short"
           text={result?.short_narrative}
+          subjectHint={selectedProc ? `CDT ${selectedProc.code} — ${selectedProc.name}${form.tooth_number ? ` · Tooth #${form.tooth_number}` : ""}` : ""}
           onChange={(v) => persistEdit("short_narrative", v)}
           onRegenerate={result ? () => onRegenerate("short") : null}
           regenerating={regenLoading.short}
@@ -308,6 +309,7 @@ export default function Dashboard() {
           label="Long narrative"
           testid="long"
           text={result?.long_narrative}
+          subjectHint={selectedProc ? `CDT ${selectedProc.code} — ${selectedProc.name}${form.tooth_number ? ` · Tooth #${form.tooth_number}` : ""}` : ""}
           onChange={(v) => persistEdit("long_narrative", v)}
           onRegenerate={result ? () => onRegenerate("long") : null}
           regenerating={regenLoading.long}

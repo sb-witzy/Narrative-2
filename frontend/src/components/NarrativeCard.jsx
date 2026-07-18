@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
-import { Copy, Loader2, RefreshCw, Check, Pencil } from "lucide-react";
+import { Copy, Loader2, RefreshCw, Check, Pencil, Printer, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { printLetter, emailLetter } from "@/lib/documentActions";
 
 export default function NarrativeCard({
   label,
@@ -12,6 +13,7 @@ export default function NarrativeCard({
   onChange,
   onRegenerate,
   regenerating = false,
+  subjectHint,
 }) {
   const [editing, setEditing] = useState(false);
   const [flash, setFlash] = useState(false);
@@ -101,6 +103,39 @@ export default function NarrativeCard({
             className="gap-1.5 rounded-full h-8"
           >
             <Copy className="h-3.5 w-3.5" /> Copy
+          </Button>
+          <Button
+            onClick={() =>
+              printLetter({
+                title: subjectHint || label,
+                subject: subjectHint || label,
+                body: localText,
+              })
+            }
+            size="sm"
+            variant="ghost"
+            disabled={!localText}
+            data-testid={`print-${testid}`}
+            className="gap-1.5 rounded-full h-8"
+            title="Open printer dialog"
+          >
+            <Printer className="h-3.5 w-3.5" /> Print
+          </Button>
+          <Button
+            onClick={() =>
+              emailLetter({
+                subject: subjectHint ? `${subjectHint} — ${label}` : label,
+                body: localText,
+              })
+            }
+            size="sm"
+            variant="ghost"
+            disabled={!localText}
+            data-testid={`email-${testid}`}
+            className="gap-1.5 rounded-full h-8"
+            title="Open in email application"
+          >
+            <Mail className="h-3.5 w-3.5" /> Email
           </Button>
         </div>
       </div>

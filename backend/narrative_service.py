@@ -109,17 +109,22 @@ def _extract_json(text: str) -> dict:
     return json.loads(match.group(0))
 
 
-def _new_chat(system_message: str) -> LlmChat:
+def _new_chat(system_message: str, model: str = "claude-sonnet-4-5-20250929") -> LlmChat:
     return LlmChat(
         api_key=os.environ["EMERGENT_LLM_KEY"],
         session_id=f"dental-{uuid.uuid4()}",
         system_message=system_message,
-    ).with_model("anthropic", "claude-sonnet-4-5-20250929")
+    ).with_model("anthropic", model)
+
+
+# Faster / cheaper model for short narratives; Sonnet 4.5 kept for appeal letters
+NARRATIVE_MODEL = "claude-haiku-4-5-20251001"
+APPEAL_MODEL = "claude-sonnet-4-5-20250929"
 
 
 async def generate_narrative(payload: dict, procedure: dict) -> dict:
     async with LLM_SEMAPHORE:
-        chat = _new_chat(_system_prompt(payload.get("carrier"), schema="both"))
+        chat = _new_chat(_system_prompt(payload.get("carrier"), schema="both"), model=NARRATIVE_MODEL)
         lines = _clinical_lines(payload, procedure)
         lines.append("")
         lines.append("Generate the short and long narrative JSON now.")
@@ -135,7 +140,7 @@ async def regenerate_field(field: str, payload: dict, procedure: dict) -> str:
     if field not in ("short", "long"):
         raise ValueError("field must be 'short' or 'long'")
     async with LLM_SEMAPHORE:
-        chat = _new_chat(_system_prompt(payload.get("carrier"), schema=field))
+        chat = _new_chat(_system_prompt(payload.get("carrier"), schema=field), model=NARRATIVE_MODEL)
         lines = _clinical_lines(payload, procedure)
         if payload.get("existing_short") and field == "long":
             lines.append(f"Existing short narrative (for consistency): {payload['existing_short']}")
@@ -190,7 +195,7 @@ async def generate_appeal_letter(narrative: dict, denial_reason: str,
     lines.append("")
     lines.append("Generate the appeal letter JSON now.")
     async with LLM_SEMAPHORE:
-        chat = _new_chat(APPEAL_SYSTEM)
+        chat = _new_chat(APPEAL_SYSTEM, model=APPEAL_MODEL)
         response_text = await chat.send_message(UserMessage(text="\n".join(lines)))
     data = _extract_json(response_text)
     return {

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { toast } from "sonner";
-import { Loader2, Sparkles, Copy, FileDown, FileText, ArrowLeft, RefreshCw } from "lucide-react";
+import { Loader2, Sparkles, Copy, FileDown, FileText, ArrowLeft, RefreshCw, Printer, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -12,6 +12,7 @@ import {
 import {
   createAppeal, updateAppeal, exportAppealPdf, exportAppealTxt, apiErrorMessage,
 } from "@/lib/api";
+import { printLetter, emailLetter } from "@/lib/documentActions";
 
 export default function AppealDialog({ open, onOpenChange, narrative }) {
   const [denialReason, setDenialReason] = useState("");
@@ -234,6 +235,25 @@ export default function AppealDialog({ open, onOpenChange, narrative }) {
                 <ArrowLeft className="h-4 w-4" /> Change inputs
               </Button>
               <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={() =>
+                  printLetter({
+                    title: appeal.subject_line || "Appeal letter",
+                    subject: appeal.subject_line,
+                    body: localLetter,
+                  })
+                }
+                  data-testid="appeal-print-btn" className="rounded-full gap-1.5">
+                  <Printer className="h-3.5 w-3.5" /> Print
+                </Button>
+                <Button size="sm" variant="outline" onClick={() =>
+                  emailLetter({
+                    subject: appeal.subject_line || "Appeal letter",
+                    body: localLetter,
+                  })
+                }
+                  data-testid="appeal-email-btn" className="rounded-full gap-1.5">
+                  <Mail className="h-3.5 w-3.5" /> Email
+                </Button>
                 <Button size="sm" variant="outline" onClick={onPdf}
                   data-testid="appeal-export-pdf" className="rounded-full gap-1.5">
                   <FileDown className="h-3.5 w-3.5" /> PDF
