@@ -4,6 +4,7 @@ Uses reportlab to build a clean, printable single- or multi-page packet.
 """
 
 import io
+import os
 from datetime import datetime
 from reportlab.lib.pagesizes import LETTER
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -18,7 +19,10 @@ from reportlab.platypus import (
     TableStyle,
     PageBreak,
     HRFlowable,
+    Image,
 )
+
+_LOGO_PATH = os.path.join(os.path.dirname(__file__), "assets", "logo.png")
 
 
 PRIMARY = HexColor("#4A6B5D")
@@ -127,43 +131,68 @@ def _narrative_flow(styles, record):
 
 
 def _practice_header(styles, practice: dict | None) -> list:
-    """Top-of-page header block with practice identity — appears above every PDF."""
-    if not practice:
-        return []
-    name = practice.get("practice_name")
-    if not name:
-        return []
-    lines = [Paragraph(f"<b>{name}</b>", styles["h1"])]
-    addr_bits = []
-    if practice.get("address_line1"):
-        addr_bits.append(practice["address_line1"])
-    if practice.get("address_line2"):
-        addr_bits.append(practice["address_line2"])
-    city_state_zip = " ".join(
-        b for b in [practice.get("city"),
-                    ((practice.get("state") or "") + (", " + practice["zip_code"] if practice.get("zip_code") else "")).strip(", ")]
-        if b
-    )
-    if city_state_zip:
-        addr_bits.append(city_state_zip)
-    contact_bits = []
-    if practice.get("phone"): contact_bits.append(f"Phone: {practice['phone']}")
-    if practice.get("fax"): contact_bits.append(f"Fax: {practice['fax']}")
-    if practice.get("email"): contact_bits.append(practice['email'])
-    ident_bits = []
-    if practice.get("npi"): ident_bits.append(f"NPI: {practice['npi']}")
-    if practice.get("tax_id"): ident_bits.append(f"Tax ID: {practice['tax_id']}")
-    if practice.get("provider_name"):
-        p = practice["provider_name"]
-        if practice.get("provider_license"):
-            p += f", Lic #{practice['provider_license']}"
-        ident_bits.append(p)
-    for chunk in [addr_bits, contact_bits, ident_bits]:
-        if chunk:
-            lines.append(Paragraph(" · ".join(chunk), styles["small"]))
-    lines.append(Spacer(1, 6))
-    lines.append(HRFlowable(width="100%", thickness=0.5, color=BORDER, spaceBefore=2, spaceAfter=10))
-    return lines
+    """Top-of-page header block with Narrative.Rx logo + practice identity."""
+    # Build the practice-identity column (right side)
+    right_col: list = []
+    if practice and practice.get("practice_name"):
+        right_col.append(Paragraph(f"<b>{practice['practice_name']}</b>", styles["h1"]))
+        addr_bits = []
+        if practice.get("address_line1"):
+            addr_bits.append(practice["address_line1"])
+        if practice.get("address_line2"):
+            addr_bits.append(practice["address_line2"])
+        city_state_zip = " ".join(
+            b for b in [practice.get("city"),
+                        ((practice.get("state") or "") + (", " + practice["zip_code"] if practice.get("zip_code") else "")).strip(", ")]
+            if b
+        )
+        if city_state_zip:
+            addr_bits.append(city_state_zip)
+        contact_bits = []
+        if practice.get("phone"): contact_bits.append(f"Phone: {practice['phone']}")
+        if practice.get("fax"): contact_bits.append(f"Fax: {practice['fax']}")
+        if practice.get("email"): contact_bits.append(practice['email'])
+        ident_bits = []
+        if practice.get("npi"): ident_bits.append(f"NPI: {practice['npi']}")
+        if practice.get("tax_id"): ident_bits.append(f"Tax ID: {practice['tax_id']}")
+        if practice.get("provider_name"):
+            p = practice["provider_name"]
+            if practice.get("provider_license"):
+                p += f", Lic #{practice['provider_license']}"
+            ident_bits.append(p)
+        for chunk in [addr_bits, contact_bits, ident_bits]:
+            if chunk:
+                right_col.append(Paragraph(" · ".join(chunk), styles["small"]))
+    else:
+        # No practice profile yet — show just the app name on the right
+        right_col.append(Paragraph("<b>Narrative.Rx</b>", styles["h1"]))
+        right_col.append(Paragraph("Dental Claim Assistant", styles["small"]))
+
+    # Left column: logo
+    if os.path.exists(_LOGO_PATH):
+        logo = Image(_LOGO_PATH, width=0.72 * inch, height=0.72 * inch)
+        header_table = Table(
+            [[logo, right_col]],
+            colWidths=[0.9 * inch, None],
+            hAlign="LEFT",
+        )
+        header_table.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (0, 0), 10),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ]))
+        return [
+            header_table,
+            Spacer(1, 6),
+            HRFlowable(width="100%", thickness=0.5, color=BORDER, spaceBefore=2, spaceAfter=10),
+        ]
+    # Fallback if the logo file isn't there yet — behave like before
+    return right_col + [
+        Spacer(1, 6),
+        HRFlowable(width="100%", thickness=0.5, color=BORDER, spaceBefore=2, spaceAfter=10),
+    ]
 
 
 def build_pdf(record: dict, office_name: str = "Dental Office", practice: dict | None = None) -> bytes:

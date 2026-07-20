@@ -9,6 +9,7 @@ import Settings from "@/pages/Settings";
 import Login from "@/pages/Login";
 import Register from "@/pages/Register";
 import ProtectedRoute from "@/components/ProtectedRoute";
+import BrandMark from "@/components/BrandMark";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import "@/App.css";
 
@@ -52,17 +53,7 @@ function Shell({ children }) {
     <div className="min-h-screen bg-background text-foreground">
       <header className="border-b border-border bg-card sticky top-0 z-40">
         <div className="max-w-[1440px] mx-auto px-6 lg:px-10 py-4 flex items-center gap-6 flex-wrap">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-[hsl(var(--primary))] text-primary-foreground grid place-items-center font-display font-black text-lg">
-              N
-            </div>
-            <div>
-              <div className="font-display font-extrabold text-lg leading-none tracking-tight">
-                Narrative<span className="text-[hsl(var(--primary))]">.</span>Rx
-              </div>
-              <div className="label-uppercase mt-1">Dental Claim Assistant</div>
-            </div>
-          </div>
+          <BrandMark size={44} tagline="Dental Claim Assistant" />
           <nav className="ml-auto flex items-center gap-1 flex-wrap">
             <NavLink to="/" end data-testid="nav-dashboard" className={navLinkClass}>
               Single

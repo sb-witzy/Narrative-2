@@ -5,6 +5,7 @@ import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import BrandMark from "@/components/BrandMark";
 import { useAuth } from "@/context/AuthContext";
 import { apiErrorMessage } from "@/lib/api";
 
@@ -37,16 +38,8 @@ export default function Register() {
   return (
     <div className="min-h-screen grid place-items-center px-4 py-12">
       <div className="w-full max-w-md">
-        <div className="flex items-center gap-3 mb-8 justify-center">
-          <div className="w-11 h-11 rounded-lg bg-[hsl(var(--primary))] text-primary-foreground grid place-items-center font-display font-black text-xl">
-            N
-          </div>
-          <div>
-            <div className="font-display font-extrabold text-xl leading-none tracking-tight">
-              Narrative<span className="text-[hsl(var(--primary))]">.</span>Rx
-            </div>
-            <div className="label-uppercase mt-1">Dental Claim Assistant</div>
-          </div>
+        <div className="mb-8 flex justify-center">
+          <BrandMark size={96} />
         </div>
 
         <div className="clay p-8">
