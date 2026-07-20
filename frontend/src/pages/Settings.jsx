@@ -40,6 +40,7 @@ function formatCommitDate(iso) {
 function SystemSection() {
   const { user } = useAuth();
   const [version, setVersion] = useState(null);
+  const [versionErr, setVersionErr] = useState(null);
   const [check, setCheck] = useState(null);
   const [checking, setChecking] = useState(false);
   const [updating, setUpdating] = useState(false);
@@ -49,7 +50,9 @@ function SystemSection() {
   const isAdmin = (user?.role || "user") === "admin";
 
   useEffect(() => {
-    getSystemVersion().then(setVersion).catch(() => setVersion(null));
+    getSystemVersion()
+      .then((v) => { setVersion(v); setVersionErr(null); })
+      .catch((e) => setVersionErr(apiErrorMessage(e)));
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, []);
 
@@ -93,6 +96,22 @@ function SystemSection() {
   };
 
   if (!version) {
+    if (versionErr) {
+      return (
+        <div className="clay p-6 text-sm" data-testid="system-error">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <div className="font-semibold text-amber-900">System info unavailable</div>
+              <p className="text-muted-foreground mt-1">
+                The backend didn't respond to <span className="font-mono">/api/system/version</span>. Most likely your server is running an older build that doesn't have self-update yet — on the server, run <span className="font-mono">windows\update.bat</span> once (or <span className="font-mono">git pull</span> then restart the service), then reload this page.
+              </p>
+              <p className="text-xs text-muted-foreground mt-2">Details: {versionErr}</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="clay p-6 text-sm text-muted-foreground" data-testid="system-loading">
         <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
