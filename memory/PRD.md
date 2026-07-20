@@ -1,46 +1,55 @@
-# Narrative.Rx — Dental Claim Narrative Assistant
+# Narrative.Rx PRD
 
-## Problem Statement
-Build a program that assists a dental office with insurance narrative writeups. Provides both short and long narratives to accompany claim submissions, allows copy-and-paste, and advises on radiograph requirements.
+## Original problem
+Dental office needs an AI-powered insurance narrative writer that produces both short and long narratives for claim submission, advises on radiographs, provides copy-paste, and supports appeals with denial handling.
 
-## User Choices
-- **Narrative generation:** AI-based (Claude Sonnet 4.5 via Emergent LLM Universal Key)
-- **Procedures:** All common (crowns, endo, extractions, perio, implants, grafts, guards, bridges) — 22 CDT codes seeded
-- **History:** Save every generated narrative to MongoDB
-- **Authentication:** None (single-office intended use)
+## Deployment
+Self-hosted native Windows Server install with:
+- Python + FastAPI backend (uvicorn wrapped by NSSM as a Windows Service)
+- React frontend (built and served same-origin from FastAPI)
+- MongoDB Community as native Windows Service
+- Serves the office LAN on TCP 8080
+- Docker/WSL/Podman all attempted and rejected — final native install works
 
-## Architecture
-- **Backend:** FastAPI (`/app/backend/server.py`) + Motor/Mongo + `emergentintegrations` LlmChat → `anthropic/claude-sonnet-4-5-20250929`
-- **Frontend:** React 19 + Tailwind + Shadcn UI, `Manrope` display / `IBM Plex Sans` body, sage-green (#4A6B5D) accent, neumorphic "clay" cards
-- **Data model:** `narratives` collection with id (uuid str), procedure_code, procedure_name, tooth_number, patient_label (no PHI), short_narrative, long_narrative, radiographs, inputs, created_at (ISO str)
+## Implemented (as of Iter 17)
+- Full auth (JWT + refresh cookie + 30-day remember-me + brute force protection)
+- Narrative generation: short + long, per-carrier tuned, tooth-picker, radiograph advice
+- Bulk-visit workflow (parallel narrative generation for a multi-procedure visit)
+- History with edit + delete + PDF/TXT export
+- Denial appeal letters with subject line, edit, PDF/TXT export
+- **Print button** and **Email button** (mailto) on both narratives and appeals
+- **Practice Settings** — logo, address, NPI, tax ID, provider name; auto-populated in PDF headers
+- **Branding** — Narrative.Rx logo everywhere: browser favicon, top nav, login/register, PDF headers, Windows shortcut icon, PWA manifest
+- **Streaming (Iter 17)** — narrative + appeal letter tokens appear word-by-word via SSE (`/generate/stream`, `/regenerate/stream`, `/appeals/stream`)
+- **Appeal outcome tracker + carrier memory (Iter 17)** — mark Won / Lost / Pending; carrier + procedure patterns endpoint; prior winning appeals are auto-injected as few-shot examples when drafting new appeals for the same (carrier, procedure_code)
 
-## Core API
-- `GET /api/procedures` — catalog of 22 CDT procedures with radiograph metadata
-- `POST /api/generate` — generate + save narrative
-- `GET /api/history`, `GET /api/history/{id}`, `DELETE /api/history/{id}`
+## Tech stack
+- Backend: FastAPI, MongoDB (Motor), emergentintegrations (Claude Haiku 4.5 for narratives, Claude Sonnet 4.5 for appeals), ReportLab, PyJWT, bcrypt
+- Frontend: React 18, Tailwind, shadcn/ui, sonner, lucide-react, axios
+- Infra: NSSM (Windows Service wrapper), native MongoDB service, Windows Firewall rule on 8080
+- Auto-start on boot via SERVICE_AUTO_START + MongoDB dependency
 
-## What's Been Implemented (2026-02)
-### Iteration 1
-- CDT procedure catalog with per-procedure radiograph advisor
-- AI narrative generation (short + long) in claim-appropriate clinical language
-- Dashboard with procedure grouping, clinical detail form, live radiograph panel, copy-to-clipboard
-- History page with search, dialog viewer, delete
+## Files of note
+- `/app/backend/narrative_service.py` — streaming + non-streaming LLM generation
+- `/app/backend/server.py` — API routes including SSE endpoints
+- `/app/backend/pdf_service.py` — PDF gen with logo header
+- `/app/frontend/src/lib/api.js` — axios client + streamSSE + makeMarkerParser
+- `/app/frontend/src/components/AppealDialog.jsx` — streaming + outcome UI
+- `/app/frontend/src/pages/Dashboard.jsx` — streaming narrative UI
+- `/app/windows/setup.ps1` — native Windows Server installer
+- `/app/windows/create-desktop-shortcut.ps1` — per-staff-PC desktop icon installer
 
-### Iteration 2 (all previously P1/P2 items shipped)
-- **PDF & text export** for single narratives and full visit packets (`reportlab`-generated, one-file download)
-- **Multi-procedure visit generator** at `/bulk` — one patient, one carrier, one visit, N procedures, parallel LLM calls, single packet export
-- **Carrier-specific templates** for Generic / Delta / Cigna / MetLife / Aetna / BCBS (carrier field tunes the system prompt)
-- **Editable narratives + section-level regenerate** — inline textarea edit with autosave (PATCH) and per-field regenerate button
-- **Tooth-diagram picker** using Universal Numbering (adult 1–32 + primary A–T) with single or multi-select
+## Backlog (P1)
+- Nightly automatic backup via Windows Task Scheduler (~15 min)
+- Off-site backup to OneDrive (~30 min)
+- Uptime monitor + email alert (~1 hr)
+- Log retention policy (~15 min)
 
-## Prioritized Backlog (P0 → P2)
-- **P2:** Cap concurrent LLM calls in bulk-visit generation (currently N-parallel)
-- **P2:** Robust JSON extraction from LLM (nested-brace resilient) or tool-format output
-- **P2:** Office branding: real logo + office name on exported PDFs (env-driven)
-- **P2:** Optional lightweight auth for multi-office/multi-user use
-- **P3:** Attach radiograph filenames/uploads to a record for full "claim packet" tracking
-- **P3:** Denial-appeal-letter generator (uses existing narrative + carrier denial reason)
+## Backlog (P2)
+- Keyboard shortcuts, save common clinical phrases, duplicate last narrative, better history search
+- Expand carrier library to 20+ (currently 6)
+- Chat-style refinement ("make it more concise")
+- Analytics dashboard (win rate, top denials, time-saved counter)
 
-## Next Tasks
-- Gather user feedback on generated narrative tone (formal vs conversational) and adjust system prompt if needed
-- Decide on export format (PDF, .docx, or plain text)
+## Backlog (P3 — only if HIPAA-scoped)
+- Session auto-lock, MFA, PHI detector, field-level encryption, full audit log
