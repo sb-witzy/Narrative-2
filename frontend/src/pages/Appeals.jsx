@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { toast } from "sonner";
-import { Trash2, Search, FileDown, FileText, Copy, ChevronRight } from "lucide-react";
+import { Trash2, Search, FileDown, FileText, Copy, ChevronRight, Trophy, XCircle, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -8,9 +8,15 @@ import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  listAppeals, deleteAppeal, updateAppeal,
+  listAppeals, deleteAppeal, updateAppeal, setAppealOutcome,
   exportAppealPdf, exportAppealTxt, apiErrorMessage,
 } from "@/lib/api";
+
+const OUTCOME_META = {
+  pending: { label: "Pending", cls: "bg-amber-100 text-amber-800 border border-amber-200", Icon: Clock },
+  won:     { label: "Won",     cls: "bg-emerald-100 text-emerald-800 border border-emerald-200", Icon: Trophy },
+  lost:    { label: "Lost",    cls: "bg-rose-100 text-rose-800 border border-rose-200", Icon: XCircle },
+};
 
 function formatDate(iso) {
   try {
@@ -150,6 +156,15 @@ export default function Appeals() {
                         {it.carrier}
                       </Badge>
                     )}
+                    {(() => {
+                      const meta = OUTCOME_META[it.outcome || "pending"] || OUTCOME_META.pending;
+                      const I = meta.Icon;
+                      return (
+                        <Badge className={`rounded-full ${meta.cls} hover:opacity-100`}>
+                          <I className="h-3 w-3 mr-1" /> {meta.label}
+                        </Badge>
+                      );
+                    })()}
                   </div>
                   <div className="font-display font-bold text-base mt-2 leading-snug truncate">
                     {it.subject_line}
@@ -191,19 +206,46 @@ export default function Appeals() {
               </DialogHeader>
 
               <div className="flex flex-wrap gap-2 mt-3">
-                <Button size="sm" variant="outline" onClick={onPdf}
-                  data-testid="appeal-dlg-pdf" className="rounded-full gap-1.5">
-                  <FileDown className="h-3.5 w-3.5" /> PDF
+                <Button size="sm" variant={selected.outcome === "won" ? "default" : "outline"}
+                  onClick={async () => {
+                    try { const u = await setAppealOutcome(selected.id, "won"); setSelected(u); load(); toast.success("Marked Won"); }
+                    catch (e) { toast.error(apiErrorMessage(e)); }
+                  }}
+                  data-testid="appeal-dlg-mark-won"
+                  className={`rounded-full gap-1.5 ${selected.outcome === "won" ? "bg-emerald-600 hover:bg-emerald-700 text-white" : ""}`}>
+                  <Trophy className="h-3.5 w-3.5" /> Won
                 </Button>
-                <Button size="sm" variant="outline" onClick={onTxt}
-                  data-testid="appeal-dlg-txt" className="rounded-full gap-1.5">
-                  <FileText className="h-3.5 w-3.5" /> TXT
+                <Button size="sm" variant={selected.outcome === "lost" ? "default" : "outline"}
+                  onClick={async () => {
+                    try { const u = await setAppealOutcome(selected.id, "lost"); setSelected(u); load(); toast.success("Marked Lost"); }
+                    catch (e) { toast.error(apiErrorMessage(e)); }
+                  }}
+                  data-testid="appeal-dlg-mark-lost"
+                  className={`rounded-full gap-1.5 ${selected.outcome === "lost" ? "bg-rose-600 hover:bg-rose-700 text-white" : ""}`}>
+                  <XCircle className="h-3.5 w-3.5" /> Lost
                 </Button>
-                <Button size="sm" variant="outline" onClick={onCopy}
-                  data-testid="appeal-dlg-copy" className="rounded-full gap-1.5">
-                  <Copy className="h-3.5 w-3.5" /> Copy
+                <Button size="sm" variant={(selected.outcome || "pending") === "pending" ? "default" : "outline"}
+                  onClick={async () => {
+                    try { const u = await setAppealOutcome(selected.id, "pending"); setSelected(u); load(); toast.success("Marked Pending"); }
+                    catch (e) { toast.error(apiErrorMessage(e)); }
+                  }}
+                  data-testid="appeal-dlg-mark-pending"
+                  className={`rounded-full gap-1.5 ${(selected.outcome || "pending") === "pending" ? "bg-amber-500 hover:bg-amber-600 text-white" : ""}`}>
+                  <Clock className="h-3.5 w-3.5" /> Pending
                 </Button>
-                <div className="ml-auto flex gap-2">
+                <div className="w-full sm:w-auto ml-auto flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" onClick={onPdf}
+                    data-testid="appeal-dlg-pdf" className="rounded-full gap-1.5">
+                    <FileDown className="h-3.5 w-3.5" /> PDF
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={onTxt}
+                    data-testid="appeal-dlg-txt" className="rounded-full gap-1.5">
+                    <FileText className="h-3.5 w-3.5" /> TXT
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={onCopy}
+                    data-testid="appeal-dlg-copy" className="rounded-full gap-1.5">
+                    <Copy className="h-3.5 w-3.5" /> Copy
+                  </Button>
                   {!editing ? (
                     <Button size="sm" variant="ghost" onClick={() => setEditing(true)}
                       data-testid="appeal-dlg-edit" className="rounded-full">

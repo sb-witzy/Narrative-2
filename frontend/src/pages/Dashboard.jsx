@@ -13,8 +13,9 @@ import ToothPicker from "@/components/ToothPicker";
 import {
   listProcedures,
   listCarriers,
-  generateNarrative,
-  regenerateField,
+  streamGenerate,
+  streamRegenerate,
+  makeMarkerParser,
   updateHistoryItem,
   exportPdf,
   exportTxt,
@@ -76,41 +77,66 @@ export default function Dashboard() {
   const onGenerate = async () => {
     if (!canGenerate) return;
     setLoading(true);
-    setResult(null);
-    try {
-      const data = await generateNarrative(form);
-      setResult(data);
-      toast.success("Narratives generated");
-    } catch (err) {
-      toast.error(err?.response?.data?.detail || "Generation failed. Please retry.");
-    } finally {
-      setLoading(false);
-    }
+    // Show an empty result immediately so the streaming textareas render
+    setResult({ short_narrative: "", long_narrative: "", _streaming: true });
+    const parser = makeMarkerParser();
+    await streamGenerate(form, {
+      onChunk: (text) => {
+        parser.feed(text);
+        setResult((prev) => ({
+          ...(prev || {}),
+          short_narrative: parser.state.short,
+          long_narrative: parser.state.long,
+          _streaming: true,
+        }));
+      },
+      onDone: (record) => {
+        setResult({ ...record, _streaming: false });
+        toast.success("Narratives generated");
+        setLoading(false);
+      },
+      onError: (err) => {
+        toast.error(err?.message || "Generation failed. Please retry.");
+        setLoading(false);
+      },
+    });
   };
 
   const onRegenerate = async (field) => {
     if (!result || regenLoading[field]) return;
     setRegenLoading((s) => ({ ...s, [field]: true }));
-    try {
-      const payload = {
+    const key = `${field}_narrative`;
+    // Clear the field before streaming into it
+    setResult((r) => ({ ...r, [key]: "", _streaming: true }));
+    const parser = makeMarkerParser();
+    await streamRegenerate(
+      {
         ...form,
         field,
         existing_short: result.short_narrative,
         existing_long: result.long_narrative,
-      };
-      const data = await regenerateField(payload);
-      const key = `${field}_narrative`;
-      const next = { ...result, [key]: data.text };
-      setResult(next);
-      if (result.id) {
-        await updateHistoryItem(result.id, { [key]: data.text });
+      },
+      {
+        onChunk: (text) => {
+          parser.feed(text);
+          const partial = field === "short" ? parser.state.short : parser.state.long;
+          setResult((r) => ({ ...r, [key]: partial, _streaming: true }));
+        },
+        onDone: async (data) => {
+          const finalText = data?.text || "";
+          setResult((r) => ({ ...r, [key]: finalText, _streaming: false }));
+          if (result.id) {
+            try { await updateHistoryItem(result.id, { [key]: finalText }); } catch { /* silent */ }
+          }
+          toast.success(`${field === "short" ? "Short" : "Long"} narrative regenerated`);
+          setRegenLoading((s) => ({ ...s, [field]: false }));
+        },
+        onError: (err) => {
+          toast.error(err?.message || "Regenerate failed");
+          setRegenLoading((s) => ({ ...s, [field]: false }));
+        },
       }
-      toast.success(`${field === "short" ? "Short" : "Long"} narrative regenerated`);
-    } catch (err) {
-      toast.error(err?.response?.data?.detail || "Regenerate failed");
-    } finally {
-      setRegenLoading((s) => ({ ...s, [field]: false }));
-    }
+    );
   };
 
   const onReset = () => {

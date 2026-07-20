@@ -6,6 +6,7 @@ load_dotenv(ROOT_DIR / ".env")
 
 import os
 import re
+import json
 import logging
 import uuid
 import asyncio
@@ -13,7 +14,7 @@ from typing import List, Optional
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response
-from fastapi.responses import Response as StarletteResponse, FileResponse
+from fastapi.responses import Response as StarletteResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -22,6 +23,7 @@ from pydantic import BaseModel, Field, ConfigDict, EmailStr
 from procedures import PROCEDURES, get_procedure
 from narrative_service import (
     generate_narrative, regenerate_field, generate_appeal_letter, CARRIER_GUIDANCE,
+    stream_narrative, stream_regenerate_field, stream_appeal_letter, parse_marker_text,
 )
 from pdf_service import (
     build_pdf, build_visit_pdf, build_txt, build_visit_txt,
@@ -131,6 +133,8 @@ class AppealRequest(BaseModel):
 class UpdateAppealRequest(BaseModel):
     letter: Optional[str] = None
     subject_line: Optional[str] = None
+    outcome: Optional[str] = None  # "pending" | "won" | "lost"
+    outcome_notes: Optional[str] = None
 
 
 class PracticeSettings(BaseModel):
@@ -203,6 +207,9 @@ class AppealRecord(BaseModel):
     extra_context: Optional[str] = None
     original_short_narrative: Optional[str] = None
     original_long_narrative: Optional[str] = None
+    outcome: Optional[str] = "pending"  # "pending" | "won" | "lost"
+    outcome_notes: Optional[str] = None
+    outcome_updated_at: Optional[str] = None
     created_at: str
 
 
@@ -403,6 +410,86 @@ async def generate(req: GenerateRequest, user=Depends(get_current_user)):
         raise HTTPException(status_code=502, detail=f"LLM error: {e}")
 
 
+def _sse_event(data: str, event: str = "chunk") -> bytes:
+    """Format one Server-Sent Event. Data is escaped so newlines survive."""
+    esc = data.replace("\r\n", "\n").replace("\n", "\\n")
+    return f"event: {event}\ndata: {esc}\n\n".encode("utf-8")
+
+
+@api_router.post("/generate/stream")
+async def generate_stream(req: GenerateRequest, user=Depends(get_current_user)):
+    """Stream narrative tokens as they're generated. Ends with a `done` event carrying the saved record."""
+    procedure = get_procedure(req.procedure_code)
+    if not procedure:
+        raise HTTPException(status_code=400, detail=f"Unknown procedure code: {req.procedure_code}")
+    payload = req.model_dump()
+
+    async def event_stream():
+        full = []
+        try:
+            async for chunk in stream_narrative(payload, procedure):
+                full.append(chunk)
+                yield _sse_event(chunk, "chunk")
+            parsed = parse_marker_text("".join(full))
+            record = NarrativeRecord(
+                id=str(uuid.uuid4()),
+                user_id=user["_id"],
+                procedure_code=procedure["code"],
+                procedure_name=procedure["name"],
+                category=procedure["category"],
+                tooth_number=payload.get("tooth_number"),
+                patient_label=payload.get("patient_label"),
+                carrier=(payload.get("carrier") or "generic").lower(),
+                short_narrative=parsed["short_narrative"],
+                long_narrative=parsed["long_narrative"],
+                radiographs=RadiographAdvice(**procedure["radiographs"]),
+                inputs={k: v for k, v in payload.items() if k not in ("save_to_history",) and v},
+                created_at=datetime.now(timezone.utc).isoformat(),
+            )
+            if req.save_to_history:
+                await db.narratives.insert_one(record.model_dump())
+            yield _sse_event(json.dumps(record.model_dump()), "done")
+        except Exception as e:
+            logger.exception("Streaming narrative failed")
+            yield _sse_event(str(e), "error")
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+    )
+
+
+@api_router.post("/regenerate/stream")
+async def regenerate_stream(req: RegenerateRequest, user=Depends(get_current_user)):
+    procedure = get_procedure(req.procedure_code)
+    if not procedure:
+        raise HTTPException(status_code=400, detail=f"Unknown procedure code: {req.procedure_code}")
+    if req.field not in ("short", "long"):
+        raise HTTPException(status_code=400, detail="field must be 'short' or 'long'")
+    payload = req.model_dump()
+
+    async def event_stream():
+        full = []
+        try:
+            async for chunk in stream_regenerate_field(req.field, payload, procedure):
+                full.append(chunk)
+                yield _sse_event(chunk, "chunk")
+            parsed = parse_marker_text("".join(full))
+            key = f"{req.field}_narrative"
+            yield _sse_event(json.dumps({"field": req.field, "text": parsed.get(key, "")}), "done")
+        except Exception as e:
+            logger.exception("Streaming regenerate failed")
+            yield _sse_event(str(e), "error")
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+    )
+
+
+
 @api_router.post("/regenerate")
 async def regenerate(req: RegenerateRequest, user=Depends(get_current_user)):
     procedure = get_procedure(req.procedure_code)
@@ -526,6 +613,7 @@ async def create_appeal(req: AppealRequest, user=Depends(get_current_user)):
 
     office_name = user.get("office_name") or "[Office Name]"
     practice = await _get_practice_settings(user["_id"])
+    prior_wins = await _prior_wins_for(user["_id"], (narrative.get("carrier") or "generic").lower(), narrative.get("procedure_code"))
     try:
         result = await generate_appeal_letter(
             narrative,
@@ -534,6 +622,7 @@ async def create_appeal(req: AppealRequest, user=Depends(get_current_user)):
             req.extra_context or "",
             office_name=practice.get("practice_name") or office_name,
             practice=practice,
+            prior_wins=prior_wins,
         )
     except Exception as e:
         logger.exception("Appeal generation failed")
@@ -561,6 +650,109 @@ async def create_appeal(req: AppealRequest, user=Depends(get_current_user)):
     return appeal
 
 
+async def _prior_wins_for(user_id: str, carrier: Optional[str], procedure_code: Optional[str]) -> list[dict]:
+    """Fetch this office's WON appeals for the same carrier + procedure_code — used as few-shot."""
+    if not carrier or not procedure_code:
+        return []
+    q = {"user_id": user_id, "carrier": carrier, "procedure_code": procedure_code, "outcome": "won"}
+    docs = await db.appeals.find(q, {"_id": 0, "letter": 1, "subject_line": 1}) \
+        .sort("outcome_updated_at", -1).to_list(2)
+    return docs
+
+
+@api_router.post("/appeals/stream")
+async def create_appeal_stream(req: AppealRequest, user=Depends(get_current_user)):
+    narrative = None
+    if req.narrative_id:
+        narrative = await db.narratives.find_one({"id": req.narrative_id, "user_id": user["_id"]}, {"_id": 0})
+        if not narrative:
+            raise HTTPException(status_code=404, detail="Narrative not found")
+    elif req.narrative:
+        narrative = req.narrative
+    else:
+        raise HTTPException(status_code=400, detail="narrative_id or narrative payload required")
+    if not req.denial_reason or not req.denial_reason.strip():
+        raise HTTPException(status_code=400, detail="denial_reason is required")
+
+    office_name = user.get("office_name") or "[Office Name]"
+    practice = await _get_practice_settings(user["_id"])
+    prior_wins = await _prior_wins_for(user["_id"], (narrative.get("carrier") or "generic").lower(), narrative.get("procedure_code"))
+
+    async def event_stream():
+        full = []
+        try:
+            async for chunk in stream_appeal_letter(
+                narrative, req.denial_reason, req.denial_code or "", req.extra_context or "",
+                office_name=practice.get("practice_name") or office_name,
+                practice=practice, prior_wins=prior_wins,
+            ):
+                full.append(chunk)
+                yield _sse_event(chunk, "chunk")
+            parsed = parse_marker_text("".join(full))
+            appeal = AppealRecord(
+                id=str(uuid.uuid4()),
+                user_id=user["_id"],
+                narrative_id=req.narrative_id,
+                procedure_code=narrative.get("procedure_code"),
+                procedure_name=narrative.get("procedure_name"),
+                tooth_number=narrative.get("tooth_number"),
+                carrier=(narrative.get("carrier") or "generic").lower(),
+                subject_line=parsed["subject_line"],
+                letter=parsed["letter"],
+                denial_reason=req.denial_reason.strip(),
+                denial_code=req.denial_code,
+                extra_context=req.extra_context,
+                original_short_narrative=narrative.get("short_narrative"),
+                original_long_narrative=narrative.get("long_narrative"),
+                outcome="pending",
+                created_at=datetime.now(timezone.utc).isoformat(),
+            )
+            if req.save_to_history:
+                await db.appeals.insert_one(appeal.model_dump())
+            yield _sse_event(json.dumps(appeal.model_dump()), "done")
+        except Exception as e:
+            logger.exception("Streaming appeal failed")
+            yield _sse_event(str(e), "error")
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+    )
+
+
+@api_router.get("/appeals/patterns")
+async def appeal_patterns(carrier: Optional[str] = None, procedure_code: Optional[str] = None,
+                          user=Depends(get_current_user)):
+    """Return win/loss/pending stats and recent winning-appeal excerpts for a (carrier, procedure) pair."""
+    q: dict = {"user_id": user["_id"]}
+    if carrier: q["carrier"] = carrier.lower()
+    if procedure_code: q["procedure_code"] = procedure_code
+    total = await db.appeals.count_documents(q)
+    won = await db.appeals.count_documents({**q, "outcome": "won"})
+    lost = await db.appeals.count_documents({**q, "outcome": "lost"})
+    pending = await db.appeals.count_documents({**q, "outcome": {"$in": ["pending", None]}})
+    winning = await db.appeals.find({**q, "outcome": "won"}, {"_id": 0}) \
+        .sort("outcome_updated_at", -1).to_list(3)
+    return {
+        "carrier": carrier,
+        "procedure_code": procedure_code,
+        "total": total,
+        "won": won,
+        "lost": lost,
+        "pending": pending,
+        "win_rate": (won / (won + lost)) if (won + lost) > 0 else None,
+        "winning_appeals": [
+            {
+                "id": w["id"], "subject_line": w.get("subject_line", ""),
+                "letter_excerpt": (w.get("letter") or "")[:400],
+                "outcome_updated_at": w.get("outcome_updated_at"),
+            } for w in winning
+        ],
+    }
+
+
+
 @api_router.get("/appeals", response_model=List[AppealRecord])
 async def list_appeals(limit: int = 100, user=Depends(get_current_user)):
     docs = await db.appeals.find({"user_id": user["_id"]}, {"_id": 0}) \
@@ -581,6 +773,10 @@ async def update_appeal(appeal_id: str, req: UpdateAppealRequest, user=Depends(g
     updates = {k: v for k, v in req.model_dump().items() if v is not None}
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
+    if "outcome" in updates:
+        if updates["outcome"] not in ("pending", "won", "lost"):
+            raise HTTPException(status_code=400, detail="outcome must be pending, won, or lost")
+        updates["outcome_updated_at"] = datetime.now(timezone.utc).isoformat()
     result = await db.appeals.update_one(
         {"id": appeal_id, "user_id": user["_id"]}, {"$set": updates},
     )

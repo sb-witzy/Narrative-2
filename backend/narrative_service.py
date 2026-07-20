@@ -1,7 +1,9 @@
 """
-Narrative generation service using Claude Sonnet 4.5 via Emergent LLM Key.
-Supports carrier-specific tuning, section-level regeneration, and denial-appeal letters.
-Includes a shared semaphore to cap concurrent LLM calls.
+Narrative generation service using Claude via Emergent LLM Key.
+- Streaming (SSE) for narratives + appeal letters via `stream_message`.
+- Kept non-streaming versions for bulk-visit (parallel batch) and back-compat.
+- Appeal generation uses prior winning-appeal excerpts as few-shot examples
+  when available for the same (carrier, procedure_code).
 """
 
 import os
@@ -9,10 +11,11 @@ import json
 import re
 import uuid
 import asyncio
-from emergentintegrations.llm.chat import LlmChat, UserMessage
+from typing import AsyncGenerator, Optional
+from emergentintegrations.llm.chat import LlmChat, UserMessage, TextDelta, StreamDone
 
 
-# Cap concurrent Claude calls across the process (bulk visit + appeal)
+# Cap concurrent Claude calls across the process
 _MAX_CONCURRENT_LLM = int(os.environ.get("MAX_CONCURRENT_LLM", "3"))
 LLM_SEMAPHORE = asyncio.Semaphore(_MAX_CONCURRENT_LLM)
 
@@ -27,7 +30,9 @@ CARRIER_GUIDANCE = {
 }
 
 
-BASE_SYSTEM = """You are a senior dental insurance biller writing claim narratives for a US dental office.
+# --------------- Prompt bases ---------------
+
+_BASE_RULES = """You are a senior dental insurance biller writing claim narratives for a US dental office.
 Your narratives justify medical necessity to third-party carriers using accurate clinical terminology.
 
 Rules:
@@ -36,11 +41,44 @@ Rules:
 - Reference CDT codes when helpful.
 - Never mention the patient's name, DOB, or PHI unless provided.
 - Do not include disclaimers, apologies, greetings, sign-offs, or "Dear Adjudicator" style openings.
-- Write in third person, past tense for completed procedures.
-- Output MUST be a single JSON object. No prose outside JSON. No markdown fences."""
+- Write in third person, past tense for completed procedures."""
 
+# Streaming output format for narratives — text between marker tags,
+# parseable incrementally on the frontend.
+_NARR_STREAM_FORMAT = """Output format (STRICT — no other text, no JSON, no markdown fences):
+[SHORT]
+<one or two sentences, ~25-45 words, for the claim form Remarks field>
+[/SHORT]
+[LONG]
+<three to six sentences, ~80-160 words, for a claim attachment or appeal>
+[/LONG]"""
 
-APPEAL_SYSTEM = """You are a senior dental insurance appeals specialist writing a FORMAL appeal letter to an insurance carrier that denied a claim.
+# JSON output format kept for the non-streaming batch path (bulk visit)
+_NARR_JSON_FORMAT = """Output MUST be a single JSON object. No prose outside JSON. No markdown fences.
+
+Output schema:
+{
+  "short_narrative": "<1-2 sentences, ~25-45 words, suitable for the claim form Remarks field>",
+  "long_narrative": "<3-6 sentences, ~80-160 words, suitable for a claim attachment or appeal letter>"
+}"""
+
+_APPEAL_STREAM_FORMAT = """Output format (STRICT — no other text, no JSON, no markdown fences):
+[SUBJECT]
+<one-line Re: subject, e.g. "Appeal - CDT D3330 endodontic therapy, tooth #30, DOS 2026-01-15">
+[/SUBJECT]
+[LETTER]
+<full letter (200-350 words) with newlines between paragraphs. Use [Office Name], [Carrier Address], [Claim #] and [Date] as bracketed placeholders where the biller will fill in.>
+[/LETTER]"""
+
+_APPEAL_JSON_FORMAT = """Output MUST be a single JSON object. No prose outside JSON. No markdown fences.
+
+Output schema:
+{
+  "subject_line": "<one-line Re: subject>",
+  "letter": "<full letter text with newlines between paragraphs>"
+}"""
+
+_APPEAL_RULES = """You are a senior dental insurance appeals specialist writing a FORMAL appeal letter to an insurance carrier that denied a claim.
 
 Rules:
 - Write a real letter (200-350 words) with clear structure: date placeholder, carrier address placeholder, Re: line with CDT code + tooth + DOS, salutation ("Dear Claims Reviewer,"), 2-4 body paragraphs, closing ("Respectfully,"), signature line.
@@ -48,32 +86,46 @@ Rules:
 - Cite the clinical, radiographic, and periodontal findings that establish medical necessity.
 - Do NOT invent new clinical facts. Only use information provided in the narrative and appeal context.
 - Include one clear "we respectfully request reconsideration of this claim" statement.
-- Never use PHI unless provided in inputs.
-- Output MUST be a single JSON object. No prose outside JSON. No markdown fences.
-
-Output schema:
-{
-  "subject_line": "<one-line Re: subject, e.g. 'Appeal — CDT D3330 endodontic therapy, tooth #30, DOS 2026-01-15'>",
-  "letter": "<full letter text with newlines between paragraphs. Use [Office Name], [Carrier Address], [Claim #] and [Date] as bracketed placeholders where the biller will fill in.>"
-}"""
+- Never use PHI unless provided in inputs."""
 
 
-def _system_prompt(carrier: str | None = None, schema: str = "both") -> str:
+# --------------- Prompt builders ---------------
+
+def _narr_system(carrier: Optional[str], streaming: bool = True, schema: str = "both") -> str:
     carrier_key = (carrier or "generic").lower()
     guidance = CARRIER_GUIDANCE.get(carrier_key, CARRIER_GUIDANCE["generic"])
-    schema_text = ""
-    if schema == "short":
-        schema_text = '{ "short_narrative": "<1-2 sentences, ~25-45 words, suitable for the claim form Remarks field>" }'
-    elif schema == "long":
-        schema_text = '{ "long_narrative": "<3-6 sentences, ~80-160 words, suitable for a claim attachment or appeal letter>" }'
+    if streaming:
+        fmt = _NARR_STREAM_FORMAT
+        if schema == "short":
+            fmt = "Output only the [SHORT]...[/SHORT] block. No [LONG] block."
+        elif schema == "long":
+            fmt = "Output only the [LONG]...[/LONG] block. No [SHORT] block."
     else:
-        schema_text = (
-            '{\n'
-            '  "short_narrative": "<1-2 sentences, ~25-45 words, suitable for the claim form Remarks field>",\n'
-            '  "long_narrative": "<3-6 sentences, ~80-160 words, suitable for a claim attachment or appeal letter>"\n'
-            '}'
+        if schema == "short":
+            fmt = 'Output MUST be a single JSON object: { "short_narrative": "..." }'
+        elif schema == "long":
+            fmt = 'Output MUST be a single JSON object: { "long_narrative": "..." }'
+        else:
+            fmt = _NARR_JSON_FORMAT
+    return f"{_BASE_RULES}\n\nCarrier guidance: {guidance}\n\n{fmt}"
+
+
+def _appeal_system(streaming: bool, prior_wins: Optional[list] = None) -> str:
+    fmt = _APPEAL_STREAM_FORMAT if streaming else _APPEAL_JSON_FORMAT
+    few_shot = ""
+    if prior_wins:
+        pieces = []
+        for i, w in enumerate(prior_wins[:2], start=1):
+            excerpt = (w.get("letter") or "").strip()
+            if len(excerpt) > 1200:
+                excerpt = excerpt[:1200] + "..."
+            pieces.append(f"WINNING EXAMPLE #{i} (carrier accepted this appeal):\n{excerpt}")
+        few_shot = (
+            "\n\nPRIOR WINNING APPEALS from this office for the same carrier / procedure - "
+            "mirror their tone, structure, and argument style, but adapt fully to the CURRENT case's clinical facts:\n\n"
+            + "\n\n---\n\n".join(pieces)
         )
-    return f"{BASE_SYSTEM}\n\nCarrier guidance: {guidance}\n\nOutput schema:\n{schema_text}"
+    return f"{_APPEAL_RULES}{few_shot}\n\n{fmt}"
 
 
 def _clinical_lines(payload: dict, procedure: dict) -> list[str]:
@@ -109,7 +161,7 @@ def _extract_json(text: str) -> dict:
     return json.loads(match.group(0))
 
 
-def _new_chat(system_message: str, model: str = "claude-sonnet-4-5-20250929") -> LlmChat:
+def _new_chat(system_message: str, model: str) -> LlmChat:
     return LlmChat(
         api_key=os.environ["EMERGENT_LLM_KEY"],
         session_id=f"dental-{uuid.uuid4()}",
@@ -117,22 +169,23 @@ def _new_chat(system_message: str, model: str = "claude-sonnet-4-5-20250929") ->
     ).with_model("anthropic", model)
 
 
-# Faster / cheaper model for short narratives; Sonnet 4.5 kept for appeal letters
 NARRATIVE_MODEL = "claude-haiku-4-5-20251001"
 APPEAL_MODEL = "claude-sonnet-4-5-20250929"
 
 
+# --------------- Non-streaming (batch / bulk) ---------------
+
 async def generate_narrative(payload: dict, procedure: dict) -> dict:
     async with LLM_SEMAPHORE:
-        chat = _new_chat(_system_prompt(payload.get("carrier"), schema="both"), model=NARRATIVE_MODEL)
+        chat = _new_chat(_narr_system(payload.get("carrier"), streaming=False, schema="both"), model=NARRATIVE_MODEL)
         lines = _clinical_lines(payload, procedure)
         lines.append("")
         lines.append("Generate the short and long narrative JSON now.")
         response_text = await chat.send_message(UserMessage(text="\n".join(lines)))
     data = _extract_json(response_text)
     return {
-        "short_narrative": data.get("short_narrative", "").strip(),
-        "long_narrative": data.get("long_narrative", "").strip(),
+        "short_narrative": (data.get("short_narrative") or "").strip(),
+        "long_narrative": (data.get("long_narrative") or "").strip(),
     }
 
 
@@ -140,7 +193,7 @@ async def regenerate_field(field: str, payload: dict, procedure: dict) -> str:
     if field not in ("short", "long"):
         raise ValueError("field must be 'short' or 'long'")
     async with LLM_SEMAPHORE:
-        chat = _new_chat(_system_prompt(payload.get("carrier"), schema=field), model=NARRATIVE_MODEL)
+        chat = _new_chat(_narr_system(payload.get("carrier"), streaming=False, schema=field), model=NARRATIVE_MODEL)
         lines = _clinical_lines(payload, procedure)
         if payload.get("existing_short") and field == "long":
             lines.append(f"Existing short narrative (for consistency): {payload['existing_short']}")
@@ -157,8 +210,23 @@ async def regenerate_field(field: str, payload: dict, procedure: dict) -> str:
 async def generate_appeal_letter(narrative: dict, denial_reason: str,
                                  denial_code: str = "", extra_context: str = "",
                                  office_name: str = "[Office Name]",
-                                 practice: dict | None = None) -> dict:
-    """Generate a formal appeal letter referencing an existing narrative and denial info."""
+                                 practice: Optional[dict] = None,
+                                 prior_wins: Optional[list] = None) -> dict:
+    lines = _appeal_user_lines(narrative, denial_reason, denial_code, extra_context, office_name, practice)
+    lines.append("")
+    lines.append("Generate the appeal letter JSON now.")
+    async with LLM_SEMAPHORE:
+        chat = _new_chat(_appeal_system(streaming=False, prior_wins=prior_wins), model=APPEAL_MODEL)
+        response_text = await chat.send_message(UserMessage(text="\n".join(lines)))
+    data = _extract_json(response_text)
+    return {
+        "subject_line": (data.get("subject_line") or "").strip(),
+        "letter": (data.get("letter") or "").strip(),
+    }
+
+
+def _appeal_user_lines(narrative: dict, denial_reason: str, denial_code: str,
+                       extra_context: str, office_name: str, practice: Optional[dict]) -> list[str]:
     lines = [
         f"ORIGINAL NARRATIVE PROCEDURE: {narrative.get('procedure_name', '')} (CDT {narrative.get('procedure_code', '')})",
         f"Tooth: {narrative.get('tooth_number') or 'N/A'}",
@@ -192,13 +260,95 @@ async def generate_appeal_letter(narrative: dict, denial_reason: str,
     if extra_context:
         lines.append("")
         lines.append(f"ADDITIONAL APPEAL CONTEXT: {extra_context}")
-    lines.append("")
-    lines.append("Generate the appeal letter JSON now.")
+    return lines
+
+
+# --------------- Streaming ---------------
+
+async def stream_narrative(payload: dict, procedure: dict) -> AsyncGenerator[str, None]:
+    """Stream marker-tagged narrative text: [SHORT]...[/SHORT][LONG]...[/LONG]"""
     async with LLM_SEMAPHORE:
-        chat = _new_chat(APPEAL_SYSTEM, model=APPEAL_MODEL)
-        response_text = await chat.send_message(UserMessage(text="\n".join(lines)))
-    data = _extract_json(response_text)
-    return {
-        "subject_line": (data.get("subject_line") or "").strip(),
-        "letter": (data.get("letter") or "").strip(),
+        chat = _new_chat(_narr_system(payload.get("carrier"), streaming=True, schema="both"), model=NARRATIVE_MODEL)
+        lines = _clinical_lines(payload, procedure)
+        lines.append("")
+        lines.append("Generate the narrative NOW using the [SHORT]/[LONG] format above.")
+        async for ev in chat.stream_message(UserMessage(text="\n".join(lines))):
+            if isinstance(ev, TextDelta):
+                yield ev.content
+            elif isinstance(ev, StreamDone):
+                return
+
+
+async def stream_regenerate_field(field: str, payload: dict, procedure: dict) -> AsyncGenerator[str, None]:
+    """Stream a single regenerated section, tagged [SHORT] or [LONG]."""
+    if field not in ("short", "long"):
+        raise ValueError("field must be 'short' or 'long'")
+    async with LLM_SEMAPHORE:
+        chat = _new_chat(_narr_system(payload.get("carrier"), streaming=True, schema=field), model=NARRATIVE_MODEL)
+        lines = _clinical_lines(payload, procedure)
+        if payload.get("existing_short") and field == "long":
+            lines.append(f"Existing short narrative (for consistency): {payload['existing_short']}")
+        if payload.get("existing_long") and field == "short":
+            lines.append(f"Existing long narrative (for consistency): {payload['existing_long']}")
+        lines.append("")
+        lines.append(f"Regenerate ONLY the {field} narrative using the [{field.upper()}]/[/{field.upper()}] format.")
+        async for ev in chat.stream_message(UserMessage(text="\n".join(lines))):
+            if isinstance(ev, TextDelta):
+                yield ev.content
+            elif isinstance(ev, StreamDone):
+                return
+
+
+async def stream_appeal_letter(narrative: dict, denial_reason: str,
+                                denial_code: str = "", extra_context: str = "",
+                                office_name: str = "[Office Name]",
+                                practice: Optional[dict] = None,
+                                prior_wins: Optional[list] = None) -> AsyncGenerator[str, None]:
+    """Stream marker-tagged appeal: [SUBJECT]...[/SUBJECT][LETTER]...[/LETTER]"""
+    lines = _appeal_user_lines(narrative, denial_reason, denial_code, extra_context, office_name, practice)
+    lines.append("")
+    lines.append("Generate the appeal NOW using the [SUBJECT]/[LETTER] format above.")
+    async with LLM_SEMAPHORE:
+        chat = _new_chat(_appeal_system(streaming=True, prior_wins=prior_wins), model=APPEAL_MODEL)
+        async for ev in chat.stream_message(UserMessage(text="\n".join(lines))):
+            if isinstance(ev, TextDelta):
+                yield ev.content
+            elif isinstance(ev, StreamDone):
+                return
+
+
+# --------------- Marker parsing (for server-side final capture) ---------------
+
+_TAG_RE = re.compile(r"\[(/?)(SHORT|LONG|SUBJECT|LETTER)\]", re.IGNORECASE)
+
+
+def parse_marker_text(text: str) -> dict:
+    """Extract sections from streamed marker-tagged text. Robust to whitespace, missing close tags."""
+    out = {"short_narrative": "", "long_narrative": "", "subject_line": "", "letter": ""}
+    field_map = {
+        "SHORT": "short_narrative",
+        "LONG": "long_narrative",
+        "SUBJECT": "subject_line",
+        "LETTER": "letter",
     }
+    current = None
+    pos = 0
+    buffer = []
+    for m in _TAG_RE.finditer(text):
+        chunk = text[pos:m.start()]
+        if current:
+            buffer.append(chunk)
+        pos = m.end()
+        closing, name = m.group(1), m.group(2).upper()
+        if closing:
+            if current and field_map.get(current):
+                out[field_map[current]] = "".join(buffer).strip()
+            current = None
+            buffer = []
+        else:
+            current = name
+            buffer = []
+    # tail: unclosed section
+    if current and field_map.get(current):
+        out[field_map[current]] = (out[field_map[current]] + "".join(buffer) + text[pos:]).strip()
+    return out

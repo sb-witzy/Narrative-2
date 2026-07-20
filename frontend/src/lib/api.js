@@ -143,6 +143,112 @@ export const listAppeals = () => api.get("/appeals").then((r) => r.data);
 export const getAppeal = (id) => api.get(`/appeals/${id}`).then((r) => r.data);
 export const updateAppeal = (id, payload) => api.patch(`/appeals/${id}`, payload).then((r) => r.data);
 export const deleteAppeal = (id) => api.delete(`/appeals/${id}`).then((r) => r.data);
+export const setAppealOutcome = (id, outcome, notes) =>
+  api.patch(`/appeals/${id}`, { outcome, outcome_notes: notes || null }).then((r) => r.data);
+export const getAppealPatterns = (carrier, procedure_code) => {
+  const params = new URLSearchParams();
+  if (carrier) params.set("carrier", carrier);
+  if (procedure_code) params.set("procedure_code", procedure_code);
+  return api.get(`/appeals/patterns?${params.toString()}`).then((r) => r.data);
+};
+
+// -------- Streaming (SSE-like) --------
+// Auth: attach bearer token if we have one in memory.
+async function streamSSE(path, payload, { onChunk, onDone, onError, signal }) {
+  const url = `${API}${path}`;
+  const headers = { "Content-Type": "application/json" };
+  if (bearerToken) headers.Authorization = `Bearer ${bearerToken}`;
+  let res;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      credentials: "include",
+      headers,
+      body: JSON.stringify(payload),
+      signal,
+    });
+  } catch (e) {
+    onError?.(e);
+    return;
+  }
+  if (!res.ok || !res.body) {
+    onError?.(new Error(`HTTP ${res.status}`));
+    return;
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let buf = "";
+  // Parse SSE frames: `event: name\ndata: payload\n\n`
+  const dispatch = (event, data) => {
+    const clean = data.replace(/\\n/g, "\n");
+    if (event === "chunk") onChunk?.(clean);
+    else if (event === "done") { try { onDone?.(JSON.parse(clean)); } catch { onDone?.({ raw: clean }); } }
+    else if (event === "error") onError?.(new Error(clean));
+  };
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf("\n\n")) !== -1) {
+        const frame = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        const lines = frame.split("\n");
+        let event = "message", data = "";
+        for (const line of lines) {
+          if (line.startsWith("event: ")) event = line.slice(7).trim();
+          else if (line.startsWith("data: ")) data += line.slice(6);
+        }
+        if (event || data) dispatch(event, data);
+      }
+    }
+  } catch (e) {
+    if (e?.name !== "AbortError") onError?.(e);
+  }
+}
+
+// Incrementally parse marker-tagged text as it streams in.
+// Feed chunks via feed(text); read current state from .short / .long / .subject / .letter.
+export function makeMarkerParser() {
+  const state = { short: "", long: "", subject: "", letter: "", buffer: "", current: null };
+  const map = { SHORT: "short", LONG: "long", SUBJECT: "subject", LETTER: "letter" };
+  const tagRe = /\[(\/?)(SHORT|LONG|SUBJECT|LETTER)\]/i;
+  const feed = (chunk) => {
+    state.buffer += chunk;
+    // Loop: find the next tag; append preceding text to current field; toggle current.
+    // Stop when no complete tag is available (leave trailing partial in buffer).
+    while (true) {
+      const m = state.buffer.match(tagRe);
+      if (!m) {
+        // No tag anywhere - it could still be forming ("[SHO" etc.). Only flush safe text.
+        const bracketIdx = state.buffer.lastIndexOf("[");
+        const safeEnd = bracketIdx === -1 ? state.buffer.length : bracketIdx;
+        if (safeEnd > 0 && state.current) {
+          state[map[state.current]] += state.buffer.slice(0, safeEnd);
+          state.buffer = state.buffer.slice(safeEnd);
+        }
+        return;
+      }
+      const before = state.buffer.slice(0, m.index);
+      if (state.current) state[map[state.current]] += before;
+      state.buffer = state.buffer.slice(m.index + m[0].length);
+      // Strip a single leading newline right after a tag for tidy display
+      if (state.buffer.startsWith("\n")) state.buffer = state.buffer.slice(1);
+      const closing = !!m[1], name = m[2].toUpperCase();
+      if (closing) state.current = null;
+      else state.current = name;
+    }
+  };
+  return { feed, state };
+}
+
+export const streamGenerate = (payload, handlers) =>
+  streamSSE("/generate/stream", payload, handlers);
+export const streamRegenerate = (payload, handlers) =>
+  streamSSE("/regenerate/stream", payload, handlers);
+export const streamAppeal = (payload, handlers) =>
+  streamSSE("/appeals/stream", payload, handlers);
 
 // Practice settings
 export const getPracticeSettings = () => api.get("/settings/practice").then((r) => r.data);
