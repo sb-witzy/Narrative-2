@@ -13,6 +13,12 @@ setlocal enableextensions enabledelayedexpansion
 cd /d "%~dp0.."
 set REPO=%CD%
 
+REM Ensure npm-global path is on PATH even when spawned by the LocalSystem service.
+REM Yarn/global npm binaries normally live under the installing user's AppData.
+if exist "C:\Users\Administrator\AppData\Roaming\npm" set "PATH=%PATH%;C:\Users\Administrator\AppData\Roaming\npm"
+if exist "%APPDATA%\npm" set "PATH=%PATH%;%APPDATA%\npm"
+if exist "C:\Program Files\nodejs" set "PATH=%PATH%;C:\Program Files\nodejs"
+
 if not exist windows\logs mkdir windows\logs
 for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value ^| find "="') do set _dt=%%I
 set STAMP=%_dt:~0,4%%_dt:~4,2%%_dt:~6,2%-%_dt:~8,2%%_dt:~10,2%%_dt:~12,2%
