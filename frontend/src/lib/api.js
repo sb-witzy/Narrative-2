@@ -250,6 +250,11 @@ export const streamRegenerate = (payload, handlers) =>
 export const streamAppeal = (payload, handlers) =>
   streamSSE("/appeals/stream", payload, handlers);
 
+// System / self-update
+export const getSystemVersion = () => api.get("/system/version").then((r) => r.data);
+export const checkForUpdates = () => api.post("/system/check-updates").then((r) => r.data);
+export const startUpdate = () => api.post("/system/update").then((r) => r.data);
+
 // Practice settings
 export const getPracticeSettings = () => api.get("/settings/practice").then((r) => r.data);
 export const savePracticeSettings = (payload) => api.put("/settings/practice", payload).then((r) => r.data);

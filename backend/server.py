@@ -10,6 +10,9 @@ import json
 import logging
 import uuid
 import asyncio
+import subprocess
+import sys
+import shutil
 from typing import List, Optional
 from datetime import datetime, timezone
 
@@ -396,6 +399,121 @@ async def list_carriers():
         {"key": k, "label": k.title() if k != "bcbs" else "BCBS", "guidance": v}
         for k, v in CARRIER_GUIDANCE.items()
     ]}
+
+
+# ---------- System / Self-Update ----------
+_REPO_ROOT = ROOT_DIR.parent  # /app/backend/.. == repo root
+
+
+def _git(args: list[str], cwd: Path = _REPO_ROOT, timeout: int = 20) -> tuple[int, str]:
+    try:
+        p = subprocess.run(
+            ["git"] + args, cwd=str(cwd), capture_output=True, text=True,
+            timeout=timeout, check=False,
+        )
+        return p.returncode, (p.stdout + p.stderr).strip()
+    except FileNotFoundError:
+        return 127, "git not installed"
+    except subprocess.TimeoutExpired:
+        return 124, "git command timed out"
+    except Exception as e:
+        return 1, f"git error: {e}"
+
+
+def _current_version() -> dict:
+    rc_sha, sha = _git(["rev-parse", "HEAD"])
+    rc_short, short = _git(["rev-parse", "--short", "HEAD"])
+    rc_branch, branch = _git(["rev-parse", "--abbrev-ref", "HEAD"])
+    rc_date, date = _git(["log", "-1", "--format=%cI"])
+    rc_msg, msg = _git(["log", "-1", "--format=%s"])
+    is_repo = rc_sha == 0
+    return {
+        "is_git_repo": is_repo,
+        "commit": sha if is_repo else None,
+        "commit_short": short if rc_short == 0 else None,
+        "branch": branch if rc_branch == 0 else None,
+        "commit_date": date if rc_date == 0 else None,
+        "commit_message": msg if rc_msg == 0 else None,
+        "platform": sys.platform,
+        "repo_root": str(_REPO_ROOT),
+    }
+
+
+def _require_admin(user: dict):
+    if (user.get("role") or "user") != "admin":
+        raise HTTPException(status_code=403, detail="Admin role required")
+
+
+@api_router.get("/system/version")
+async def system_version(user=Depends(get_current_user)):
+    return _current_version()
+
+
+@api_router.post("/system/check-updates")
+async def system_check_updates(user=Depends(get_current_user)):
+    _require_admin(user)
+    cur = _current_version()
+    if not cur["is_git_repo"]:
+        raise HTTPException(status_code=400, detail="Not a git checkout — self-update unavailable")
+    branch = cur["branch"] or "main"
+    rc, _out = _git(["fetch", "--quiet", "origin", branch], timeout=30)
+    if rc != 0:
+        raise HTTPException(status_code=502, detail=f"git fetch failed: {_out}")
+    rc, latest_sha = _git(["rev-parse", f"origin/{branch}"])
+    if rc != 0:
+        raise HTTPException(status_code=502, detail=f"could not read origin: {latest_sha}")
+    rc, count_behind = _git(["rev-list", "--count", f"HEAD..origin/{branch}"])
+    rc, count_ahead = _git(["rev-list", "--count", f"origin/{branch}..HEAD"])
+    behind = int(count_behind) if count_behind.isdigit() else 0
+    ahead = int(count_ahead) if count_ahead.isdigit() else 0
+    rc, latest_msg = _git(["log", "-1", "--format=%s", latest_sha])
+    rc, latest_date = _git(["log", "-1", "--format=%cI", latest_sha])
+    return {
+        "current": cur["commit"],
+        "current_short": cur["commit_short"],
+        "latest": latest_sha,
+        "latest_short": latest_sha[:7] if latest_sha else None,
+        "latest_message": latest_msg if rc == 0 else None,
+        "latest_date": latest_date if rc == 0 else None,
+        "branch": branch,
+        "ahead": ahead,
+        "behind": behind,
+        "has_update": behind > 0,
+    }
+
+
+@api_router.post("/system/update")
+async def system_update(user=Depends(get_current_user)):
+    _require_admin(user)
+    if sys.platform != "win32":
+        raise HTTPException(
+            status_code=400,
+            detail="Self-update is only supported on Windows. Run `./windows/update.bat` manually.",
+        )
+    updater = _REPO_ROOT / "windows" / "updater.bat"
+    if not updater.exists():
+        raise HTTPException(status_code=500, detail=f"Updater not found at {updater}")
+
+    # Spawn the batch script DETACHED so it survives this backend's own restart.
+    # DETACHED_PROCESS = 0x00000008, CREATE_NEW_PROCESS_GROUP = 0x00000200
+    DETACHED = 0x00000008 | 0x00000200
+    try:
+        subprocess.Popen(
+            ["cmd.exe", "/c", str(updater)],
+            cwd=str(_REPO_ROOT),
+            creationflags=DETACHED,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to spawn updater: {e}")
+
+    return {
+        "started": True,
+        "message": "Update started. The app will restart in ~30 seconds and be back within 3-5 minutes.",
+    }
 
 
 # ---------- Authenticated Narrative Routes ----------
