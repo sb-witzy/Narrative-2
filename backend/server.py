@@ -451,7 +451,6 @@ async def system_version(user=Depends(get_current_user)):
 
 @api_router.post("/system/check-updates")
 async def system_check_updates(user=Depends(get_current_user)):
-    _require_admin(user)
     cur = _current_version()
     if not cur["is_git_repo"]:
         raise HTTPException(status_code=400, detail="Not a git checkout — self-update unavailable")
@@ -484,7 +483,6 @@ async def system_check_updates(user=Depends(get_current_user)):
 
 @api_router.post("/system/update")
 async def system_update(user=Depends(get_current_user)):
-    _require_admin(user)
     if sys.platform != "win32":
         raise HTTPException(
             status_code=400,

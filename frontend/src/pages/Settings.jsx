@@ -13,7 +13,6 @@ import {
   getSystemVersion, checkForUpdates, startUpdate,
   apiErrorMessage,
 } from "@/lib/api";
-import { useAuth } from "@/context/AuthContext";
 
 const FIELDS = [
   { key: "practice_name", label: "Practice name", placeholder: "Bright Smiles Dental", full: true },
@@ -38,7 +37,6 @@ function formatCommitDate(iso) {
 }
 
 function SystemSection() {
-  const { user } = useAuth();
   const [version, setVersion] = useState(null);
   const [versionErr, setVersionErr] = useState(null);
   const [check, setCheck] = useState(null);
@@ -46,8 +44,6 @@ function SystemSection() {
   const [updating, setUpdating] = useState(false);
   const [awaitingRestart, setAwaitingRestart] = useState(false);
   const pollRef = useRef(null);
-
-  const isAdmin = (user?.role || "user") === "admin";
 
   useEffect(() => {
     getSystemVersion()
@@ -168,14 +164,7 @@ function SystemSection() {
         </div>
       </div>
 
-      {!isAdmin && (
-        <div className="rounded-md bg-secondary/60 border border-border p-3 text-xs text-muted-foreground">
-          Only an admin user can check for or install updates. Ask the account owner to sign in.
-        </div>
-      )}
-
-      {isAdmin && (
-        <>
+      <>
           <div className="pt-2 flex flex-wrap gap-2 items-center">
             <Button
               onClick={onCheck} disabled={checking || updating || !canSelfUpdate}
@@ -242,7 +231,6 @@ function SystemSection() {
             </div>
           )}
         </>
-      )}
     </div>
   );
 }
