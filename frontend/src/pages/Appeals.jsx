@@ -11,6 +11,7 @@ import {
   listAppeals, deleteAppeal, updateAppeal, setAppealOutcome,
   exportAppealPdf, exportAppealTxt, apiErrorMessage,
 } from "@/lib/api";
+import { copyText } from "@/lib/documentActions";
 
 const OUTCOME_META = {
   pending: { label: "Pending", cls: "bg-amber-100 text-amber-800 border border-amber-200", Icon: Clock },
@@ -83,8 +84,9 @@ export default function Appeals() {
   };
 
   const onCopy = async () => {
-    try { await navigator.clipboard.writeText(draft); toast.success("Copied"); }
-    catch { toast.error("Copy failed"); }
+    const ok = await copyText(draft);
+    if (ok) toast.success("Copied");
+    else toast.error("Copy failed - select the text manually with Ctrl+A, Ctrl+C");
   };
 
   const onPdf = async () => {

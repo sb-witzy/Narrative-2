@@ -8,6 +8,44 @@ import { toast } from "sonner";
 
 const MAILTO_URL_LIMIT = 1900; // safe cross-client ceiling incl. subject overhead
 
+/**
+ * Robust "copy to clipboard" that works on plain HTTP LAN URLs.
+ *
+ * `navigator.clipboard.writeText` is only available in secure contexts
+ * (HTTPS or localhost). When staff hit the app at http://<server-ip>:8080
+ * we must fall back to the legacy document.execCommand('copy') path.
+ * Returns true on success, false otherwise.
+ */
+export async function copyText(text) {
+  if (!text) return false;
+  // Modern path (HTTPS / localhost)
+  if (typeof navigator !== "undefined" && navigator.clipboard && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch { /* fall through */ }
+  }
+  // Legacy path — works on http:// LAN URLs
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.top = "-9999px";
+    ta.style.left = "-9999px";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    ta.setSelectionRange(0, ta.value.length);
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 function escapeHtml(s) {
   return String(s || "")
     .replace(/&/g, "&amp;")
@@ -86,14 +124,14 @@ export async function emailLetter({ subject = "", body }) {
 
   // Too long for a reliable mailto — put the letter on the clipboard,
   // open the mail client with a hint, and tell the user to paste.
-  try {
-    await navigator.clipboard.writeText(body);
+  const copied = await copyText(body);
+  if (copied) {
     const hintBody = encodeURIComponent(
       "(The letter was copied to your clipboard — paste it here with Ctrl+V.)"
     );
     window.location.href = `mailto:?subject=${encSubject}&body=${hintBody}`;
     toast.success("Letter copied to clipboard — paste it into the email body (Ctrl+V)");
-  } catch {
+  } else {
     toast.error("Letter is too long to email directly. Copy it manually and paste into your email.");
   }
 }

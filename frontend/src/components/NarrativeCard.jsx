@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import { Copy, Loader2, RefreshCw, Check, Pencil, Printer, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { printLetter, emailLetter } from "@/lib/documentActions";
+import { printLetter, emailLetter, copyText } from "@/lib/documentActions";
 
 export default function NarrativeCard({
   label,
@@ -31,13 +31,13 @@ export default function NarrativeCard({
   };
 
   const onCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(localText);
+    const ok = await copyText(localText);
+    if (ok) {
       setFlash(true);
       setTimeout(() => setFlash(false), 700);
       toast.success(`${label} copied to clipboard`);
-    } catch {
-      toast.error("Copy failed");
+    } else {
+      toast.error("Copy failed - select the text manually with Ctrl+A, Ctrl+C");
     }
   };
 

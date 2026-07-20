@@ -16,7 +16,7 @@ import {
   streamAppeal, makeMarkerParser, updateAppeal, setAppealOutcome,
   getAppealPatterns, exportAppealPdf, exportAppealTxt, apiErrorMessage,
 } from "@/lib/api";
-import { printLetter, emailLetter } from "@/lib/documentActions";
+import { printLetter, emailLetter, copyText } from "@/lib/documentActions";
 
 const OUTCOME_META = {
   pending: { label: "Pending", cls: "bg-amber-100 text-amber-800 border border-amber-200", Icon: Clock },
@@ -110,8 +110,9 @@ export default function AppealDialog({ open, onOpenChange, narrative }) {
   };
 
   const onCopy = async () => {
-    try { await navigator.clipboard.writeText(localLetter); toast.success("Letter copied to clipboard"); }
-    catch { toast.error("Copy failed"); }
+    const ok = await copyText(localLetter);
+    if (ok) toast.success("Letter copied to clipboard");
+    else toast.error("Copy failed - select the text manually with Ctrl+A, Ctrl+C");
   };
 
   const onPdf = async () => {
