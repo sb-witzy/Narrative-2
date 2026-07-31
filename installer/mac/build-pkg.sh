@@ -48,6 +48,31 @@ chmod +x "$PKGROOT$APP_PATH/mac/setup.command"
 # --- 4. VERSION marker (read by /api/system/version) ---
 echo -n "$VERSION" > "$PKGROOT$APP_PATH/VERSION"
 
+# --- 4b. Build Narrative.Rx.app bundle into /Applications ---
+echo "[build-pkg] Assembling Narrative.Rx.app..."
+APP_BUNDLE="$PKGROOT/Applications/Narrative.Rx.app"
+mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources"
+cp "$REPO_ROOT/installer/mac/app/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
+# Substitute the version so the About panel shows the right number
+sed -i '' "s|>1.0.0<|>$VERSION<|g" "$APP_BUNDLE/Contents/Info.plist"
+cp "$REPO_ROOT/installer/mac/app/NarrativeRx" "$APP_BUNDLE/Contents/MacOS/NarrativeRx"
+chmod +x "$APP_BUNDLE/Contents/MacOS/NarrativeRx"
+
+# Convert the 512x512 PNG source into a multi-resolution .icns
+if command -v sips >/dev/null 2>&1 && command -v iconutil >/dev/null 2>&1; then
+    ICONSET="$BUILD_ROOT/AppIcon.iconset"
+    mkdir -p "$ICONSET"
+    SRC_PNG="$REPO_ROOT/frontend/public/logo512.png"
+    for size in 16 32 128 256 512; do
+        sips -z "$size" "$size"     "$SRC_PNG" --out "$ICONSET/icon_${size}x${size}.png"    >/dev/null
+        sips -z $((size*2)) $((size*2)) "$SRC_PNG" --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
+    done
+    iconutil -c icns -o "$APP_BUNDLE/Contents/Resources/AppIcon.icns" "$ICONSET"
+    echo "[build-pkg] Icon generated."
+else
+    echo "[build-pkg] WARN: sips/iconutil not found — the .app will use a generic icon."
+fi
+
 # --- 5. Postinstall script ---
 cp "$REPO_ROOT/installer/mac/scripts/postinstall" "$SCRIPTS_DIR/postinstall"
 chmod +x "$SCRIPTS_DIR/postinstall"
@@ -111,14 +136,17 @@ If the Terminal window doesn't open automatically, double-click:
 For Apple Silicon (M1/M2/M3/M4) Macs, macOS 12+.
 W
 cat > "$RES_DIR/conclusion.txt" <<'C'
-Narrative.Rx files have been copied to your Mac.
+Narrative.Rx has been installed.
 
-A Terminal window has opened to complete the interactive setup.
-Please follow the prompts in that window — it will install
-Homebrew, Python, and MongoDB (about 5 minutes), then open the
-app at http://localhost:8080.
+A Terminal window will now open to complete the interactive
+setup (Homebrew, Python, MongoDB — about 5 minutes).
 
-If you closed the Terminal window by accident, re-run:
+Once setup finishes, open the app any time from:
+   * Applications > Narrative.Rx
+   * Spotlight (Cmd+Space) - type "Narrative"
+   * http://localhost:8080
+
+If the Terminal window doesn't appear, double-click:
   /Library/Application Support/NarrativeRx/mac/setup.command
 C
 if [ -f "$REPO_ROOT/installer/EULA.txt" ]; then

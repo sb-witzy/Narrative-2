@@ -196,7 +196,14 @@ cat <<DONE
      Setup complete
 ============================================================
 
-Log in at:  http://localhost:8080
+Narrative.Rx is now running in the background.
+
+To open the app any time:
+   * Open Applications > Narrative.Rx
+   * Or search Spotlight (Cmd+Space) for "Narrative"
+   * Or visit http://localhost:8080 in your browser
+
+Log in with:
    Email:    admin@dental.com
    Password: admin123
 

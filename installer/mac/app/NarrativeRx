@@ -1,0 +1,38 @@
+#!/bin/bash
+# Narrative.Rx.app entry point.
+# Lives at:
+#   /Applications/Narrative.Rx.app/Contents/MacOS/NarrativeRx
+#
+# The backend service (com.narrativerx.app) is loaded by launchd at boot
+# and kept alive automatically. This launcher just:
+#   1. Waits briefly if the service isn't listening yet (rare cold boot)
+#   2. If setup.command hasn't been run yet (no .env or empty LLM key),
+#      opens the interactive setup instead of the browser
+#   3. Otherwise opens the app in the default browser
+
+APP_DIR="/Library/Application Support/NarrativeRx"
+ENV_FILE="$APP_DIR/.env"
+SETUP_CMD="$APP_DIR/mac/setup.command"
+
+# Not yet set up? Push the user to the setup wizard.
+NEEDS_SETUP=1
+if [ -f "$ENV_FILE" ]; then
+    if grep -qE '^EMERGENT_LLM_KEY=..+' "$ENV_FILE" 2>/dev/null; then
+        NEEDS_SETUP=0
+    fi
+fi
+
+if [ "$NEEDS_SETUP" = "1" ] && [ -x "$SETUP_CMD" ]; then
+    open -a Terminal "$SETUP_CMD"
+    exit 0
+fi
+
+# Wait up to 15 seconds for the service to be listening on 8080.
+for _ in $(seq 1 15); do
+    if curl -fsS -m 1 http://localhost:8080/api/ >/dev/null 2>&1; then
+        break
+    fi
+    sleep 1
+done
+
+open "http://localhost:8080"
