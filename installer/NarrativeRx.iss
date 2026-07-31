@@ -114,16 +114,23 @@ var
 
 // Build "NRX-XXXX-XXXX-XXXX" — 12 alphanumeric chars (uppercase, no 0/O/1/I to
 // avoid transcription errors) in three dash-separated groups of 4.
+// Uses a linear congruential generator seeded from GetTickCount, because
+// Inno Setup Pascal Script does not expose the Randomize procedure and
+// bare Random() would return the same sequence on every install.
 function GenerateActivationKey(): String;
 var
   Alphabet: String;
   I, N: Integer;
+  Seed: Cardinal;
   Key: String;
 begin
   Alphabet := 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';  // 32 chars, unambiguous
+  Seed := GetTickCount();
   Key := 'NRX-';
   for I := 1 to 12 do begin
-    N := Random(Length(Alphabet)) + 1;
+    // Numerical Recipes / glibc LCG constants — wraps modulo 2^32
+    Seed := Seed * 1103515245 + 12345;
+    N := ((Seed shr 16) mod 32) + 1;  // 1..32 → valid string index
     Key := Key + Copy(Alphabet, N, 1);
     if (I = 4) or (I = 8) then Key := Key + '-';
   end;
@@ -132,7 +139,6 @@ end;
 
 procedure InitializeWizard();
 begin
-  Randomize;
   ActivationKey := GenerateActivationKey();
 
   LLMKeyPage := CreateInputQueryPage(wpSelectDir,
