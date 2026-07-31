@@ -82,8 +82,10 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 ; 1. Silent MongoDB install (only if not already installed)
 Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\mongodb-installer.msi"" INSTALLLOCATION=""C:\Program Files\MongoDB\Server\7.0\"" ADDLOCAL=""ServerService,Client,Router,MiscellaneousTools"" SHOULD_INSTALL_COMPASS=""0"" /qn"; StatusMsg: "Installing MongoDB (this may take a minute)..."; Check: not IsMongoInstalled
 
-; 2. Write the .env file with the LLM key + activation key the user entered
-Filename: "{app}\backend\.venv\Scripts\python.exe"; Parameters: "-c ""import os,secrets; from pathlib import Path; d=Path(r'{commonappdata}\NarrativeRx'); d.mkdir(parents=True, exist_ok=True); jwt=secrets.token_hex(32); Path(d/'.env').write_text('MONGO_URL=mongodb://localhost:27017\nDB_NAME=narrative_rx\nCORS_ORIGINS=http://localhost:8080\nJWT_SECRET='+jwt+'\nEMERGENT_LLM_KEY={code:GetLLMKey}\nADMIN_EMAIL=admin@dental.com\nADMIN_PASSWORD=admin123\nSERVE_FRONTEND=1\nMAX_CONCURRENT_LLM=3\nACTIVATION_KEY={code:GetActivationKey}\n', encoding='utf-8')"" "; StatusMsg: "Writing configuration..."; Flags: runhidden
+; 2. Write the .env file. EMERGENT_LLM_KEY is left blank on purpose —
+;    the desktop launcher (open-narrative-rx.bat) detects the empty key
+;    on first click and pops firstrun.exe so the office staffer can paste it.
+Filename: "{app}\backend\.venv\Scripts\python.exe"; Parameters: "-c ""import os,secrets; from pathlib import Path; d=Path(r'{commonappdata}\NarrativeRx'); d.mkdir(parents=True, exist_ok=True); jwt=secrets.token_hex(32); Path(d/'.env').write_text('MONGO_URL=mongodb://localhost:27017\nDB_NAME=narrative_rx\nCORS_ORIGINS=http://localhost:8080\nJWT_SECRET='+jwt+'\nEMERGENT_LLM_KEY=\nADMIN_EMAIL=admin@dental.com\nADMIN_PASSWORD=admin123\nSERVE_FRONTEND=1\nMAX_CONCURRENT_LLM=3\nACTIVATION_KEY={code:GetActivationKey}\n', encoding='utf-8')"" "; StatusMsg: "Writing configuration..."; Flags: runhidden
 
 ; 3. Firewall rule for port 8080
 Filename: "netsh.exe"; Parameters: "advfirewall firewall add rule name=""Narrative.Rx (TCP 8080)"" dir=in action=allow protocol=TCP localport=8080"; StatusMsg: "Opening firewall..."; Flags: runhidden
@@ -99,8 +101,9 @@ Filename: "{app}\nssm.exe"; Parameters: "set NarrativeRxApp DependOnService Mong
 Filename: "{app}\nssm.exe"; Parameters: "set NarrativeRxApp ObjectName LocalSystem"; Flags: runhidden
 Filename: "sc.exe"; Parameters: "start NarrativeRxApp"; Flags: runhidden
 
-; 5. Open the app in the default browser after install (optional)
-Filename: "http://localhost:8080"; Description: "Launch Narrative.Rx"; Flags: postinstall shellexec skipifsilent
+; 5. Open the app in the default browser after install.
+;    The launcher will pop firstrun.exe first if EMERGENT_LLM_KEY isn't set.
+Filename: "{app}\open-narrative-rx.bat"; Description: "Launch Narrative.Rx"; Flags: postinstall shellexec skipifsilent nowait
 
 [UninstallRun]
 Filename: "sc.exe"; Parameters: "stop NarrativeRxApp"; Flags: runhidden
@@ -109,7 +112,6 @@ Filename: "netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Narr
 
 [Code]
 var
-  LLMKeyPage: TInputQueryWizardPage;
   ActivationKey: String;
 
 // Build "NRX-XXXX-XXXX-XXXX" — 12 alphanumeric chars (uppercase, no 0/O/1/I to
@@ -143,17 +145,6 @@ end;
 procedure InitializeWizard();
 begin
   ActivationKey := GenerateActivationKey();
-
-  LLMKeyPage := CreateInputQueryPage(wpSelectDir,
-    'Narrative.Rx setup',
-    'Enter your Emergent LLM key',
-    'You can get your Emergent LLM key from https://app.emergent.sh (Profile -> Universal Key). Your practice activation key is generated automatically and shown on the final screen.');
-  LLMKeyPage.Add('Emergent LLM key:', False);
-end;
-
-function GetLLMKey(Param: String): String;
-begin
-  Result := LLMKeyPage.Values[0];
 end;
 
 function GetActivationKey(Param: String): String;
@@ -166,31 +157,21 @@ begin
   Result := RegKeyExists(HKLM, 'SYSTEM\CurrentControlSet\Services\MongoDB');
 end;
 
-function NextButtonClick(CurPageID: Integer): Boolean;
-begin
-  Result := True;
-  if CurPageID = LLMKeyPage.ID then begin
-    if Trim(LLMKeyPage.Values[0]) = '' then begin
-      MsgBox('Please enter your Emergent LLM key. You can get it at https://app.emergent.sh under Profile -> Universal Key.', mbInformation, MB_OK);
-      Result := False;
-    end;
-  end;
-end;
-
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   KeyFile: String;
 begin
   if CurStep = ssPostInstall then begin
-    // Also drop a copy of the activation key at a stable path so the office
-    // can retrieve it later without digging into .env.
+    // Drop a copy of the activation key at a stable path so the office can
+    // retrieve it later without digging into .env.
     KeyFile := ExpandConstant('{commonappdata}\NarrativeRx\activation-key.txt');
     SaveStringToFile(KeyFile, ActivationKey + #13#10, False);
   end;
 end;
 
 // Show the generated activation key on the final wizard page so the office
-// staffer can write it down before clicking Finish.
+// staffer can write it down before clicking Finish. Also explains that the
+// Emergent LLM key will be requested by a small setup window on first launch.
 procedure CurPageChanged(CurPageID: Integer);
 begin
   if CurPageID = wpFinished then begin
@@ -200,7 +181,10 @@ begin
       '        ' + ActivationKey + #13#10 + #13#10 +
       'Please note this down. It has also been saved to' + #13#10 +
       'C:\ProgramData\NarrativeRx\activation-key.txt' + #13#10 + #13#10 +
-      'Log in at http://localhost:8080 with:' + #13#10 +
+      'When you first click the Narrative.Rx icon, a small setup window' + #13#10 +
+      'will appear so you can paste your Emergent LLM key' + #13#10 +
+      '(app.emergent.sh -> Profile -> Universal Key).' + #13#10 + #13#10 +
+      'Then log in at http://localhost:8080 with:' + #13#10 +
       '   admin@dental.com  /  admin123' + #13#10 +
       '(change the password from the Settings page once logged in)';
   end;
