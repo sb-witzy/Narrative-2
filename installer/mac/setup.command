@@ -102,28 +102,27 @@ echo "Python: $PYTHON_BIN ($($PYTHON_BIN --version))"
 
 # --- 4. MongoDB Community ---
 step "Installing MongoDB Community"
-# Homebrew 4.x refuses to install from unofficial taps via short name.
-# Use the fully-qualified formula and set HOMEBREW_NO_INSTALL_FROM_API for
-# the tap operations so the local tap directory is consulted.
-export HOMEBREW_NO_INSTALL_FROM_API=1
+# Step 4a: tap under HOMEBREW_NO_INSTALL_FROM_API so third-party tap load works.
 if ! "$BREW_BIN" tap | grep -q '^mongodb/brew$'; then
-    "$BREW_BIN" tap mongodb/brew || fail "brew tap mongodb/brew failed."
+    HOMEBREW_NO_INSTALL_FROM_API=1 "$BREW_BIN" tap mongodb/brew \
+        || fail "brew tap mongodb/brew failed."
 fi
-# Homebrew 4.4+ marks third-party taps as untrusted by default and
-# refuses to load their formulas until explicitly trusted.
 "$BREW_BIN" tap --repair 2>/dev/null || true
+
+# Step 4b: trust the tap (Homebrew 4.4+ requires this before any formula load).
 if "$BREW_BIN" trust --help >/dev/null 2>&1; then
     echo "Trusting mongodb/brew tap..."
     "$BREW_BIN" trust mongodb/brew 2>/dev/null || \
         "$BREW_BIN" trust --formula mongodb/brew/mongodb-community 2>/dev/null || \
         echo "(brew trust step is a no-op on this Homebrew version)"
 fi
+
+# Step 4c: install WITH the API enabled so 'mongosh' (migrated to
+# homebrew/core) resolves correctly as a transitive dependency.
 if ! "$BREW_BIN" list mongodb-community >/dev/null 2>&1; then
-    # Fully qualified name so Homebrew doesn't try the API first
     "$BREW_BIN" install mongodb/brew/mongodb-community \
-        || fail "brew install mongodb/brew/mongodb-community failed. Try running 'brew doctor' and re-launching this setup."
+        || fail "brew install mongodb/brew/mongodb-community failed. Try 'brew doctor' and re-launch this setup."
 fi
-unset HOMEBREW_NO_INSTALL_FROM_API
 MONGOD_BIN="$BREW_PREFIX/opt/mongodb-community/bin/mongod"
 MONGOD_CONF="$BREW_PREFIX/etc/mongod.conf"
 [ -x "$MONGOD_BIN" ] || fail "mongod binary not found after brew install."
