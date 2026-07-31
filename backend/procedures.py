@@ -90,6 +90,17 @@ PROCEDURES = [
             "note": "Frequency limit usually 3-5 years. Not billable same day as FMX by most carriers.",
         },
     },
+    {
+        "code": "D0350",
+        "name": "2D oral/facial photographic image obtained intra-orally or extra-orally",
+        "category": "Diagnostic",
+        "requires_tooth": False,
+        "radiographs": {
+            "required": [],
+            "recommended": [],
+            "note": "Intraoral photos as diagnostic adjunct. Attach photo file with claim; document why the photo was clinically necessary (e.g., wear, fracture, soft tissue lesion).",
+        },
+    },
 
     # ------------------------------------------------------------------
     # Preventive (D1xxx)
@@ -125,6 +136,17 @@ PROCEDURES = [
             "required": [],
             "recommended": [],
             "note": "Frequency typically 2 per year, age-limited by carrier (often under age 14-19). Document caries risk for adult claims.",
+        },
+    },
+    {
+        "code": "D1310",
+        "name": "Nutritional counseling for control of dental disease",
+        "category": "Preventive",
+        "requires_tooth": False,
+        "radiographs": {
+            "required": [],
+            "recommended": [],
+            "note": "Document time spent, patient's caries or erosion risk factors discussed, and specific dietary recommendations given. Often not a covered benefit; expect frequent denials.",
         },
     },
     {
@@ -331,6 +353,17 @@ PROCEDURES = [
             "required": ["PA showing endodontic obturation"],
             "recommended": ["PHOTO of prepped tooth"],
             "note": "Endodontically treated tooth requiring post retention.",
+        },
+    },
+    {
+        "code": "D2999",
+        "name": "Unspecified restorative procedure, by report",
+        "category": "Restorative",
+        "requires_tooth": True,
+        "radiographs": {
+            "required": ["PA of tooth"],
+            "recommended": ["PHOTO"],
+            "note": "Use only when no other CDT code applies. A detailed narrative is REQUIRED - describe exactly what was done, materials used, and why a specific code doesn't fit. High denial rate without thorough documentation.",
         },
     },
 
@@ -964,6 +997,54 @@ PROCEDURES = [
             "required": [],
             "recommended": [],
             "note": "Lab reline of partial.",
+        },
+    },
+
+    # ------------------------------------------------------------------
+    # Adjunctive general services (D9xxx) - visits, palliative care, consults
+    # ------------------------------------------------------------------
+    {
+        "code": "D9110",
+        "name": "Palliative treatment of dental pain - per visit",
+        "category": "Adjunctive",
+        "requires_tooth": False,
+        "radiographs": {
+            "required": [],
+            "recommended": ["PA of area of concern"],
+            "note": "Emergency/urgent visit for pain relief when definitive treatment isn't performed same day (e.g., patient in acute pain, medication only, temporary sedative filling). Document chief complaint, findings, treatment provided, and follow-up plan.",
+        },
+    },
+    {
+        "code": "D9310",
+        "name": "Consultation - diagnostic service by dentist or physician other than the requesting dentist",
+        "category": "Adjunctive",
+        "requires_tooth": False,
+        "radiographs": {
+            "required": [],
+            "recommended": [],
+            "note": "Second-opinion or specialist consult. Document referring provider, reason for consult, and written report generated. Not billable with a same-day evaluation code by same provider.",
+        },
+    },
+    {
+        "code": "D9440",
+        "name": "Office visit - after regularly scheduled hours",
+        "category": "Adjunctive",
+        "requires_tooth": False,
+        "radiographs": {
+            "required": [],
+            "recommended": [],
+            "note": "After-hours emergency visit. Document date, time seen (outside normal hours), and reason for the after-hours call.",
+        },
+    },
+    {
+        "code": "D9450",
+        "name": "Case presentation - subsequent to detailed and extensive treatment planning",
+        "category": "Adjunctive",
+        "requires_tooth": False,
+        "radiographs": {
+            "required": [],
+            "recommended": [],
+            "note": "Time spent presenting a comprehensive treatment plan to the patient. Document plan complexity, time spent, and materials reviewed with patient.",
         },
     },
 

@@ -20,6 +20,7 @@ const CATEGORY_ORDER = [
   "Implant",
   "Bridge",
   "Removable Prosthodontics",
+  "Adjunctive",
   "Occlusal Guard",
 ];
 
