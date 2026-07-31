@@ -130,13 +130,17 @@ echo "MongoDB: $MONGOD_BIN"
 
 # --- 5. Python venv + backend deps ---
 step "Creating Python virtual environment and installing backend deps"
+# /Library/Application Support/NarrativeRx/ was extracted by the .pkg as
+# root:wheel, so the current user can't write inside it. Run venv + pip
+# via sudo — the resulting venv is root-owned which matches the launchd
+# daemon (also root) that will exec python from it.
 if [ ! -x "$APP_DIR/backend/.venv/bin/python" ]; then
-    "$PYTHON_BIN" -m venv "$APP_DIR/backend/.venv" \
+    sudo "$PYTHON_BIN" -m venv "$APP_DIR/backend/.venv" \
         || fail "python -m venv failed."
 fi
-"$APP_DIR/backend/.venv/bin/python" -m pip install --upgrade pip \
+sudo "$APP_DIR/backend/.venv/bin/python" -m pip install --upgrade pip \
     || fail "pip upgrade failed."
-"$APP_DIR/backend/.venv/bin/python" -m pip install \
+sudo "$APP_DIR/backend/.venv/bin/python" -m pip install \
     -r "$APP_DIR/backend/requirements.txt" \
     --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/ \
     || fail "pip install requirements failed."
