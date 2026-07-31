@@ -65,6 +65,18 @@ jobs:
               -r backend\requirements.txt `
               --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/
 
+      - name: Build first-run wizard (firstrun.exe)
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip pyinstaller
+          pyinstaller --onefile --noconsole --name firstrun `
+            --distpath installer\payload `
+            --workpath installer\payload\_pyi_build `
+            --specpath installer\payload\_pyi_build `
+            installer\firstrun\firstrun.py
+          # Clean PyInstaller build cache — we only want firstrun.exe in payload\
+          Remove-Item -Recurse -Force installer\payload\_pyi_build -ErrorAction SilentlyContinue
+
       - name: Assemble installer payload
         shell: pwsh
         run: |
@@ -75,8 +87,13 @@ jobs:
           Copy-Item -Recurse -Force -Path frontend\build\* -Destination installer\payload\frontend\build\
           # Icon
           Copy-Item -Force windows\branding\narrative-rx.ico installer\payload\
+          # Windows helper scripts (updater + exe-updater + backup)
+          New-Item -ItemType Directory -Force installer\payload\windows | Out-Null
+          Copy-Item -Force windows\*.bat installer\payload\windows\
           # Static payload files (open-narrative-rx.bat)
           Copy-Item -Force installer\payload-static\* installer\payload\
+          # Write VERSION so the running backend can advertise its version
+          Set-Content -NoNewline -Path installer\payload\VERSION -Value "${{ steps.version.outputs.version }}"
 
       - name: Download NSSM
         shell: pwsh

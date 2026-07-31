@@ -60,20 +60,28 @@ function SystemSection() {
   };
 
   const onUpdate = async () => {
+    const targetLabel = check?.latest_version
+      ? `Narrative.Rx ${check.latest_version}`
+      : check?.behind
+        ? `${check.behind} update${check.behind > 1 ? "s" : ""}`
+        : "the latest release";
     if (!window.confirm(
-      "The app will restart in ~30 seconds and be unavailable to all staff for 3-5 minutes. Continue?"
+      `The app will restart in ~30 seconds and be unavailable to all staff for 2-5 minutes while ${targetLabel} installs. Continue?`
     )) return;
     setUpdating(true);
     try {
       await startUpdate();
       toast.success("Update started — waiting for restart...");
       setAwaitingRestart(true);
-      // Poll every 5 sec for the backend to come back with a new commit
+      // Poll every 5 sec for the backend to come back with a new version/commit
       const originalCommit = version?.commit;
+      const originalVersion = version?.version;
       pollRef.current = setInterval(async () => {
         try {
           const v = await getSystemVersion();
-          if (v?.commit && originalCommit && v.commit !== originalCommit) {
+          const commitChanged = v?.commit && originalCommit && v.commit !== originalCommit;
+          const versionChanged = v?.version && originalVersion && v.version !== originalVersion;
+          if (commitChanged || versionChanged) {
             clearInterval(pollRef.current);
             pollRef.current = null;
             setVersion(v);
@@ -116,7 +124,8 @@ function SystemSection() {
     );
   }
 
-  const canSelfUpdate = version.is_git_repo && version.platform === "win32";
+  const isInstaller = !!version.is_installer_build;
+  const canSelfUpdate = (version.platform === "win32" || version.platform === "darwin") && (isInstaller || version.is_git_repo);
 
   return (
     <div className="clay p-6 space-y-5" data-testid="system-section">
@@ -136,7 +145,11 @@ function SystemSection() {
         <div>
           <Label className="label-uppercase mb-2 block">Current version</Label>
           <div className="flex items-center gap-2 flex-wrap">
-            {version.commit_short ? (
+            {isInstaller ? (
+              <Badge variant="outline" className="font-mono" data-testid="installed-version-badge">
+                v{version.version}
+              </Badge>
+            ) : version.commit_short ? (
               <>
                 <Badge variant="outline" className="font-mono">
                   <GitBranch className="h-3 w-3 mr-1" />
@@ -150,7 +163,11 @@ function SystemSection() {
               <span className="text-sm text-muted-foreground">Not a git checkout</span>
             )}
           </div>
-          {version.commit_message && (
+          {isInstaller ? (
+            <p className="text-xs text-muted-foreground mt-2">
+              Installed from <span className="font-mono">{version.github_repo}</span> release
+            </p>
+          ) : version.commit_message && (
             <p className="text-xs text-foreground/70 mt-2 italic">"{version.commit_message}"</p>
           )}
         </div>
@@ -158,6 +175,8 @@ function SystemSection() {
           <Label className="label-uppercase mb-2 block">Environment</Label>
           <div className="text-sm text-foreground/80">
             Platform: <span className="font-mono">{version.platform}</span>
+            <br />
+            Mode: <span className="font-mono">{isInstaller ? "installer" : (version.is_git_repo ? "git" : "manual")}</span>
             <br />
             <span className="text-xs text-muted-foreground font-mono break-all">{version.repo_root}</span>
           </div>
@@ -181,7 +200,11 @@ function SystemSection() {
                 className="rounded-full gap-2 h-10 bg-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/90 text-primary-foreground font-semibold"
               >
                 {updating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                {updating ? "Starting..." : `Install ${check.behind} update${check.behind > 1 ? "s" : ""}`}
+                {updating ? "Starting..." : (
+                  check.mode === "installer"
+                    ? `Install v${check.latest_version}`
+                    : `Install ${check.behind} update${check.behind > 1 ? "s" : ""}`
+                )}
               </Button>
             )}
           </div>
@@ -192,7 +215,9 @@ function SystemSection() {
               <div className="text-sm">
                 <div className="font-semibold text-amber-900">Updating Narrative.Rx</div>
                 <p className="text-amber-800 mt-1">
-                  The service is stopping, pulling the latest code, and rebuilding. This page will reload automatically once the update is complete (usually 2-4 minutes). Do not close the browser.
+                  {check?.mode === "installer"
+                    ? "Downloading the latest installer and upgrading in place. This page will reload automatically once the update is complete (usually 2-3 minutes). Do not close the browser."
+                    : "The service is stopping, pulling the latest code, and rebuilding. This page will reload automatically once the update is complete (usually 2-4 minutes). Do not close the browser."}
                 </p>
               </div>
             </div>
@@ -202,7 +227,9 @@ function SystemSection() {
             <div className="rounded-md bg-emerald-50 border border-emerald-200 p-3 flex items-center gap-2" data-testid="up-to-date-banner">
               <CheckCircle2 className="h-4 w-4 text-emerald-700" />
               <span className="text-sm text-emerald-900">
-                You're on the latest version{check.branch ? ` of \`${check.branch}\`` : ""}.
+                {check.mode === "installer"
+                  ? `You're on the latest release (v${check.current_version}).`
+                  : `You're on the latest version${check.branch ? ` of \`${check.branch}\`` : ""}.`}
               </span>
             </div>
           )}
@@ -212,22 +239,34 @@ function SystemSection() {
               <div className="flex items-center gap-2">
                 <AlertCircle className="h-4 w-4 text-blue-700" />
                 <span className="text-sm font-semibold text-blue-900">
-                  Update available: {check.behind} new commit{check.behind > 1 ? "s" : ""} on `{check.branch}`
+                  {check.mode === "installer"
+                    ? `Update available: v${check.current_version} → v${check.latest_version}`
+                    : `Update available: ${check.behind} new commit${check.behind > 1 ? "s" : ""} on \`${check.branch}\``}
                 </span>
               </div>
               {check.latest_message && (
-                <p className="text-xs text-blue-900/80 pl-6 italic">"{check.latest_message}"</p>
+                <p className="text-xs text-blue-900/80 pl-6 italic whitespace-pre-wrap line-clamp-4">"{check.latest_message}"</p>
               )}
               <p className="text-xs text-blue-900/70 pl-6">
-                Latest: <span className="font-mono">{check.latest_short}</span>
-                {check.latest_date && ` · ${formatCommitDate(check.latest_date)}`}
+                {check.mode === "installer" ? (
+                  <>
+                    {check.exe_name && <span className="font-mono">{check.exe_name}</span>}
+                    {typeof check.exe_size === "number" && ` · ${(check.exe_size / (1024 * 1024)).toFixed(1)} MB`}
+                    {check.latest_date && ` · ${formatCommitDate(check.latest_date)}`}
+                  </>
+                ) : (
+                  <>
+                    Latest: <span className="font-mono">{check.latest_short}</span>
+                    {check.latest_date && ` · ${formatCommitDate(check.latest_date)}`}
+                  </>
+                )}
               </p>
             </div>
           )}
 
           {!canSelfUpdate && (
             <div className="rounded-md bg-secondary/60 border border-border p-3 text-xs text-muted-foreground">
-              Self-update is available only on Windows Server installs where the app was deployed from git. On this environment, updates must be applied manually.
+              Self-update is available only on Windows / macOS installs (either from the .exe/.pkg installer or a git checkout). On this environment, updates must be applied manually.
             </div>
           )}
         </>

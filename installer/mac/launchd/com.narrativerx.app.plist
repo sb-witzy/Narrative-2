@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.narrativerx.app</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Library/Application Support/NarrativeRx/backend/.venv/bin/python</string>
+        <string>-m</string>
+        <string>uvicorn</string>
+        <string>server:app</string>
+        <string>--host</string>
+        <string>0.0.0.0</string>
+        <string>--port</string>
+        <string>8080</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Library/Application Support/NarrativeRx/backend</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>NARRATIVE_RX_CONFIG_DIR</key>
+        <string>/Library/Application Support/NarrativeRx</string>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/Library/Logs/NarrativeRx/service-stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Library/Logs/NarrativeRx/service-stderr.log</string>
+</dict>
+</plist>

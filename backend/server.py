@@ -424,6 +424,10 @@ async def list_carriers():
 
 # ---------- System / Self-Update ----------
 _REPO_ROOT = ROOT_DIR.parent  # /app/backend/.. == repo root
+# GitHub repo used for release-based (installer) updates.
+# Override with GITHUB_REPO env var if the app is forked.
+_GITHUB_REPO = os.environ.get("GITHUB_REPO", "sb-witzy/Narrative-2")
+_VERSION_FILE = _REPO_ROOT / "VERSION"
 
 
 def _git(args: list[str], cwd: Path = _REPO_ROOT, timeout: int = 20) -> tuple[int, str]:
@@ -441,6 +445,24 @@ def _git(args: list[str], cwd: Path = _REPO_ROOT, timeout: int = 20) -> tuple[in
         return 1, f"git error: {e}"
 
 
+def _read_version_file() -> Optional[str]:
+    try:
+        if _VERSION_FILE.exists():
+            v = _VERSION_FILE.read_text(encoding="utf-8").strip()
+            return v or None
+    except Exception:
+        pass
+    return None
+
+
+def _is_installer_build() -> bool:
+    """True when this backend is running from an installed .exe (no .git,
+    but a VERSION file with a real version string is present)."""
+    has_git = (_REPO_ROOT / ".git").is_dir()
+    v = _read_version_file()
+    return (not has_git) and bool(v) and not v.endswith("-dev")
+
+
 def _current_version() -> dict:
     rc_sha, sha = _git(["rev-parse", "HEAD"])
     rc_short, short = _git(["rev-parse", "--short", "HEAD"])
@@ -450,6 +472,8 @@ def _current_version() -> dict:
     is_repo = rc_sha == 0
     return {
         "is_git_repo": is_repo,
+        "is_installer_build": _is_installer_build(),
+        "version": _read_version_file(),
         "commit": sha if is_repo else None,
         "commit_short": short if rc_short == 0 else None,
         "branch": branch if rc_branch == 0 else None,
@@ -457,12 +481,75 @@ def _current_version() -> dict:
         "commit_message": msg if rc_msg == 0 else None,
         "platform": sys.platform,
         "repo_root": str(_REPO_ROOT),
+        "github_repo": _GITHUB_REPO,
     }
 
 
 def _require_admin(user: dict):
     if (user.get("role") or "user") != "admin":
         raise HTTPException(status_code=403, detail="Admin role required")
+
+
+def _parse_semver(s: str) -> tuple:
+    """Convert '1.2.3' or 'v1.2.3' → (1,2,3). Falls back to (0,0,0) on error."""
+    if not s:
+        return (0, 0, 0)
+    s = s.strip().lstrip("v").split("-")[0].split("+")[0]
+    parts = s.split(".")
+    out = []
+    for p in parts[:3]:
+        try:
+            out.append(int(p))
+        except ValueError:
+            out.append(0)
+    while len(out) < 3:
+        out.append(0)
+    return tuple(out)
+
+
+def _github_latest_release() -> dict:
+    """Query GitHub API for the latest release of _GITHUB_REPO."""
+    import urllib.request
+    import urllib.error
+    url = f"https://api.github.com/repos/{_GITHUB_REPO}/releases/latest"
+    req = urllib.request.Request(url, headers={
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "NarrativeRx-Updater",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"GitHub API HTTP {e.code}: {e.reason}")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"GitHub API error: {e}")
+
+    tag = (data.get("tag_name") or "").lstrip("v")
+    assets = data.get("assets") or []
+    # Pick the right asset for this platform
+    if sys.platform == "darwin":
+        want_exts = (".pkg",)
+    elif sys.platform == "win32":
+        want_exts = (".exe",)
+    else:
+        want_exts = ()
+    picked = next(
+        (a for a in assets if any(str(a.get("name", "")).lower().endswith(x) for x in want_exts)),
+        None,
+    )
+    return {
+        "tag": tag,
+        "html_url": data.get("html_url"),
+        "body": data.get("body"),
+        "published_at": data.get("published_at"),
+        "asset_name": picked.get("name") if picked else None,
+        "asset_url": picked.get("browser_download_url") if picked else None,
+        "asset_size": picked.get("size") if picked else None,
+        # legacy alias for backwards compat with the frontend
+        "exe_name": picked.get("name") if picked else None,
+        "exe_url": picked.get("browser_download_url") if picked else None,
+        "exe_size": picked.get("size") if picked else None,
+    }
 
 
 @api_router.get("/system/version")
@@ -473,6 +560,27 @@ async def system_version(user=Depends(get_current_user)):
 @api_router.post("/system/check-updates")
 async def system_check_updates(user=Depends(get_current_user)):
     cur = _current_version()
+
+    # -------- Installer mode: query GitHub Releases API --------
+    if cur["is_installer_build"]:
+        latest = _github_latest_release()
+        cur_v = _parse_semver(cur.get("version"))
+        lat_v = _parse_semver(latest.get("tag"))
+        has_update = lat_v > cur_v and bool(latest.get("exe_url"))
+        return {
+            "mode": "installer",
+            "current_version": cur.get("version"),
+            "latest_version": latest.get("tag"),
+            "latest_message": latest.get("body"),
+            "latest_date": latest.get("published_at"),
+            "latest_url": latest.get("html_url"),
+            "exe_url": latest.get("exe_url"),
+            "exe_name": latest.get("exe_name"),
+            "exe_size": latest.get("exe_size"),
+            "has_update": has_update,
+        }
+
+    # -------- Git mode (dev / manual clone install) --------
     if not cur["is_git_repo"]:
         raise HTTPException(status_code=400, detail="Not a git checkout — self-update unavailable")
     branch = cur["branch"] or "main"
@@ -489,6 +597,7 @@ async def system_check_updates(user=Depends(get_current_user)):
     rc, latest_msg = _git(["log", "-1", "--format=%s", latest_sha])
     rc, latest_date = _git(["log", "-1", "--format=%cI", latest_sha])
     return {
+        "mode": "git",
         "current": cur["commit"],
         "current_short": cur["commit_short"],
         "latest": latest_sha,
@@ -504,10 +613,73 @@ async def system_check_updates(user=Depends(get_current_user)):
 
 @api_router.post("/system/update")
 async def system_update(user=Depends(get_current_user)):
+    cur = _current_version()
+
+    # -------- Installer mode: download latest asset and re-run silently --------
+    if cur["is_installer_build"] and sys.platform in ("win32", "darwin"):
+        latest = _github_latest_release()
+        asset_url = latest.get("asset_url")
+        if not asset_url:
+            ext = ".pkg" if sys.platform == "darwin" else ".exe"
+            raise HTTPException(
+                status_code=502,
+                detail=f"Latest release has no {ext} asset attached yet",
+            )
+        cur_v = _parse_semver(cur.get("version"))
+        lat_v = _parse_semver(latest.get("tag"))
+        if lat_v <= cur_v:
+            return {
+                "started": False,
+                "message": f"Already up to date (installed {cur.get('version')}, latest {latest.get('tag')}).",
+            }
+
+        if sys.platform == "darwin":
+            updater = _REPO_ROOT / "mac" / "updater.sh"
+            if not updater.exists():
+                raise HTTPException(status_code=500, detail=f"mac updater not found at {updater}")
+            try:
+                subprocess.Popen(
+                    ["/bin/bash", str(updater), asset_url],
+                    cwd=str(_REPO_ROOT),
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                    close_fds=True,
+                )
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Failed to spawn mac updater: {e}")
+        else:
+            updater = _REPO_ROOT / "windows" / "exe-updater.bat"
+            if not updater.exists():
+                raise HTTPException(status_code=500, detail=f"exe-updater not found at {updater}")
+            DETACHED = 0x00000008 | 0x00000200
+            try:
+                subprocess.Popen(
+                    ["cmd.exe", "/c", str(updater), asset_url],
+                    cwd=str(_REPO_ROOT),
+                    creationflags=DETACHED,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    close_fds=True,
+                )
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Failed to spawn exe-updater: {e}")
+
+        return {
+            "started": True,
+            "mode": "installer",
+            "from_version": cur.get("version"),
+            "to_version": latest.get("tag"),
+            "message": f"Downloading Narrative.Rx {latest.get('tag')} and upgrading in place. The app will restart in ~30 seconds and be back within 2-3 minutes.",
+        }
+
+    # -------- Git mode (dev / manual clone install) --------
     if sys.platform != "win32":
         raise HTTPException(
             status_code=400,
-            detail="Self-update is only supported on Windows. Run `./windows/update.bat` manually.",
+            detail="Self-update in git mode is only supported on Windows. Run `./windows/update.bat` manually.",
         )
     updater = _REPO_ROOT / "windows" / "updater.bat"
     if not updater.exists():
@@ -531,6 +703,7 @@ async def system_update(user=Depends(get_current_user)):
 
     return {
         "started": True,
+        "mode": "git",
         "message": "Update started. The app will restart in ~30 seconds and be back within 3-5 minutes.",
     }
 

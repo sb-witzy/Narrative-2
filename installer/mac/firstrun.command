@@ -1,0 +1,79 @@
+#!/bin/bash
+# Narrative.Rx macOS first-run wizard.
+# Opened in Terminal after install to collect the Emergent LLM key + admin creds.
+
+set -u
+ENV_FILE="/Library/Application Support/NarrativeRx/.env"
+
+clear
+cat <<HEADER
+============================================================
+     Narrative.Rx — First-run setup
+============================================================
+This wizard writes your Emergent LLM key and admin credentials
+to:
+   $ENV_FILE
+
+You can re-run it any time from
+   /Library/Application Support/NarrativeRx/mac/firstrun.command
+
+------------------------------------------------------------
+HEADER
+
+if [ ! -w "$ENV_FILE" ]; then
+    echo "NOTE: The wizard needs sudo to write $ENV_FILE."
+    echo
+fi
+
+read -p "Emergent LLM key  : " LLM_KEY
+if [ -z "$LLM_KEY" ]; then
+    echo
+    echo "No key entered — get yours at https://app.emergent.sh (Profile → Universal Key)."
+    echo "Aborting; re-run this wizard when you have the key."
+    exit 1
+fi
+
+read -p "Admin email       [admin@dental.com]: " EMAIL
+EMAIL="${EMAIL:-admin@dental.com}"
+read -s -p "Admin password    (min 8 chars): " PASSWORD
+echo
+if [ ${#PASSWORD} -lt 8 ]; then
+    echo "Password too short. Aborting."
+    exit 1
+fi
+read -p "Practice name     (optional): " PRACTICE
+read -p "Activation key    (optional): " ACT
+
+TMP=$(mktemp)
+# Preserve any lines we don't know about
+if [ -f "$ENV_FILE" ]; then
+    grep -vE '^(EMERGENT_LLM_KEY|ADMIN_EMAIL|ADMIN_PASSWORD|PRACTICE_NAME|ACTIVATION_KEY)=' "$ENV_FILE" >> "$TMP" || true
+fi
+{
+    echo "EMERGENT_LLM_KEY=$LLM_KEY"
+    echo "ADMIN_EMAIL=$EMAIL"
+    echo "ADMIN_PASSWORD=$PASSWORD"
+    echo "PRACTICE_NAME=$PRACTICE"
+    echo "ACTIVATION_KEY=$ACT"
+} >> "$TMP"
+
+if [ -w "$ENV_FILE" ]; then
+    mv "$TMP" "$ENV_FILE"
+else
+    sudo mv "$TMP" "$ENV_FILE"
+    sudo chmod 600 "$ENV_FILE"
+fi
+
+echo
+echo "Saved. Restarting the Narrative.Rx service..."
+sudo launchctl unload /Library/LaunchDaemons/com.narrativerx.app.plist 2>/dev/null || true
+sudo launchctl load /Library/LaunchDaemons/com.narrativerx.app.plist
+
+echo
+echo "All set. Log in at http://localhost:8080 with:"
+echo "   Email:    $EMAIL"
+echo "   Password: (the one you just entered)"
+echo
+echo "Opening the app now..."
+sleep 2
+open "http://localhost:8080" || true

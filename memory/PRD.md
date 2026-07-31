@@ -23,26 +23,29 @@ Self-hosted native Windows Server install with:
 - **Streaming (Iter 17)** — narrative + appeal letter tokens appear word-by-word via SSE (`/generate/stream`, `/regenerate/stream`, `/appeals/stream`)
 - **Appeal outcome tracker + carrier memory (Iter 17)** — mark Won / Lost / Pending; carrier + procedure patterns endpoint; prior winning appeals are auto-injected as few-shot examples when drafting new appeals for the same (carrier, procedure_code)
 - **Windows .exe installer (Feb 2026)** — Inno Setup script + GitHub Actions workflow; `AppURL` wired to `sb-witzy/Narrative-2`; ready to tag `v1.0.0` for the first public installer release. See `/app/RELEASING.md`.
+- **macOS .pkg installer (Feb 2026)** — Apple Silicon build via `pkgbuild`/`productbuild`; parallel GitHub Actions workflow `build-installer-mac.yml`; postinstall auto-installs Homebrew + python@3.12 + mongodb-community; launchd services for backend + MongoDB; Terminal-based first-run wizard.
+- **First-run wizard (Feb 2026)** — Windows: `firstrun.py` Tkinter GUI compiled to `firstrun.exe` via PyInstaller, launched from Start Menu and on first launch if `.env` lacks `EMERGENT_LLM_KEY`. macOS: `firstrun.command` Terminal wizard. Both write `.env` and restart the service.
+- **In-app auto-updater (Feb 2026)** — Settings → System → Check for updates queries GitHub Releases API directly (no `git` required). Backend picks `.exe` or `.pkg` asset based on platform, spawns `windows/exe-updater.bat` or `installer/mac/updater.sh` to download + re-install in place. Git-mode path preserved for dev / manual-clone installs.
 
 ## Tech stack
 - Backend: FastAPI, MongoDB (Motor), emergentintegrations (Claude Haiku 4.5 for narratives, Claude Sonnet 4.5 for appeals), ReportLab, PyJWT, bcrypt
 - Frontend: React 18, Tailwind, shadcn/ui, sonner, lucide-react, axios
-- Infra: NSSM (Windows Service wrapper), native MongoDB service, Windows Firewall rule on 8080
-- Auto-start on boot via SERVICE_AUTO_START + MongoDB dependency
+- Infra: NSSM + native MongoDB service + Windows Firewall (Windows) · launchd + Homebrew mongodb-community (macOS)
+- Auto-start on boot via `SERVICE_AUTO_START` + MongoDB dependency (Windows) / `RunAtLoad`+`KeepAlive` (macOS)
 
 ## Files of note
-- `/app/backend/narrative_service.py` — streaming + non-streaming LLM generation
-- `/app/backend/server.py` — API routes including SSE endpoints
-- `/app/backend/pdf_service.py` — PDF gen with logo header
-- `/app/frontend/src/lib/api.js` — axios client + streamSSE + makeMarkerParser
-- `/app/frontend/src/components/AppealDialog.jsx` — streaming + outcome UI
-- `/app/frontend/src/pages/Dashboard.jsx` — streaming narrative UI
-- `/app/windows/setup.ps1` — native Windows Server installer
-- `/app/windows/create-desktop-shortcut.ps1` — per-staff-PC desktop icon installer
+- `/app/backend/server.py` — API routes, SSE, and dual-mode auto-updater (git + installer)
+- `/app/backend/narrative_service.py`, `pdf_service.py`
+- `/app/frontend/src/pages/Settings.jsx` — System section (git + installer mode UI)
+- `/app/installer/NarrativeRx.iss` — Inno Setup script
+- `/app/installer/firstrun/firstrun.py` — Windows Tkinter wizard (→ `firstrun.exe`)
+- `/app/installer/mac/build-pkg.sh` + `mac/scripts/postinstall` — macOS .pkg builder
+- `/app/installer/mac/firstrun.command`, `mac/updater.sh`, `mac/launchd/*.plist`
+- `/app/windows/exe-updater.bat` — installer-mode self-update
+- `/app/.github/workflows/build-installer.yml` (Windows) + `build-installer-mac.yml` (Mac)
+- `/app/backend/tests/backend_iter18_test.py` — installer detection + updater tests
 
 ## Backlog (P1)
-- **macOS `.pkg` installer (v1.1.0)** — Apple Silicon only, unsigned pilot build, parallel GitHub Actions workflow that emits both `.exe` and `.pkg` on every tag (~2-3 hrs)
-- **Installer Phase 3** — first-run GUI config wizard for Emergent LLM key + admin creds (~2 hrs)
 - Nightly automatic backup via Windows Task Scheduler (~15 min)
 - Off-site backup to OneDrive (~30 min)
 - Uptime monitor + email alert (~1 hr)

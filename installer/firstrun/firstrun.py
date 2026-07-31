@@ -1,0 +1,238 @@
+"""
+Narrative.Rx First-Run / Settings wizard.
+
+A small Tkinter GUI that lets a non-technical dental office staffer paste in:
+  - Emergent LLM key
+  - Admin email + password
+  - Practice name (optional)
+  - Activation key (optional)
+
+Reads and writes %ProgramData%\\NarrativeRx\\.env — the same file the
+FastAPI backend reads on startup.
+
+Also launched from the Start Menu ("Narrative.Rx Settings") so keys can be
+rotated later without editing text files.
+
+Packaged as firstrun.exe via PyInstaller in the CI workflow.
+"""
+from __future__ import annotations
+
+import os
+import secrets
+import sys
+import subprocess
+import tkinter as tk
+from pathlib import Path
+from tkinter import messagebox, ttk
+
+
+CONFIG_DIR = Path(os.environ.get("ProgramData", r"C:\ProgramData")) / "NarrativeRx"
+ENV_FILE = CONFIG_DIR / ".env"
+SERVICE_NAME = "NarrativeRxApp"
+
+DEFAULTS = {
+    "MONGO_URL": "mongodb://localhost:27017",
+    "DB_NAME": "narrative_rx",
+    "CORS_ORIGINS": "http://localhost:8080",
+    "SERVE_FRONTEND": "1",
+    "MAX_CONCURRENT_LLM": "3",
+    "ADMIN_EMAIL": "admin@dental.com",
+    "ADMIN_PASSWORD": "admin123",
+    "EMERGENT_LLM_KEY": "",
+    "ACTIVATION_KEY": "",
+    "PRACTICE_NAME": "",
+    "JWT_SECRET": "",
+}
+
+
+def read_env() -> dict:
+    """Parse the existing .env into a dict. Missing file = empty dict."""
+    out = dict(DEFAULTS)
+    if not ENV_FILE.exists():
+        return out
+    for line in ENV_FILE.read_text(encoding="utf-8", errors="ignore").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, _, v = line.partition("=")
+        out[k.strip()] = v.strip()
+    return out
+
+
+def write_env(values: dict) -> None:
+    """Persist values to %ProgramData%\\NarrativeRx\\.env atomically."""
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    # Auto-generate a JWT secret on first run
+    if not values.get("JWT_SECRET"):
+        values["JWT_SECRET"] = secrets.token_hex(32)
+    keys_order = [
+        "MONGO_URL", "DB_NAME", "CORS_ORIGINS", "JWT_SECRET",
+        "EMERGENT_LLM_KEY", "ADMIN_EMAIL", "ADMIN_PASSWORD",
+        "PRACTICE_NAME", "ACTIVATION_KEY",
+        "SERVE_FRONTEND", "MAX_CONCURRENT_LLM",
+    ]
+    lines = [f"{k}={values.get(k, '')}" for k in keys_order]
+    for k, v in values.items():
+        if k not in keys_order:
+            lines.append(f"{k}={v}")
+    tmp = ENV_FILE.with_suffix(".env.tmp")
+    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    os.replace(tmp, ENV_FILE)
+
+
+def restart_service() -> tuple[bool, str]:
+    """Attempt to restart the NarrativeRxApp Windows Service so new config takes effect."""
+    try:
+        subprocess.run(["sc.exe", "stop", SERVICE_NAME], capture_output=True, timeout=30)
+        r = subprocess.run(["sc.exe", "start", SERVICE_NAME], capture_output=True, text=True, timeout=30)
+        if r.returncode == 0:
+            return True, "Service restarted successfully."
+        return False, f"sc start exited {r.returncode}: {r.stdout} {r.stderr}"
+    except FileNotFoundError:
+        return False, "sc.exe not found — are you running on Windows?"
+    except subprocess.TimeoutExpired:
+        return False, "Timed out waiting for the service to start."
+    except Exception as e:
+        return False, f"Unexpected error: {e}"
+
+
+class Wizard(tk.Tk):
+    def __init__(self) -> None:
+        super().__init__()
+        self.title("Narrative.Rx Setup")
+        self.geometry("620x580")
+        self.resizable(False, False)
+        self.configure(bg="#f8f7f2")
+
+        self.env = read_env()
+        self.vars: dict[str, tk.StringVar] = {}
+
+        style = ttk.Style(self)
+        try:
+            style.theme_use("vista" if sys.platform == "win32" else "clam")
+        except Exception:
+            pass
+
+        header = tk.Frame(self, bg="#1f3d2c", height=80)
+        header.pack(fill="x")
+        tk.Label(
+            header, text="Narrative.Rx", bg="#1f3d2c", fg="#f4e7c1",
+            font=("Segoe UI Semibold", 20),
+        ).pack(pady=(14, 0))
+        tk.Label(
+            header, text="Configure your practice",
+            bg="#1f3d2c", fg="#f4e7c1", font=("Segoe UI", 10),
+        ).pack()
+
+        body = tk.Frame(self, bg="#f8f7f2", padx=28, pady=20)
+        body.pack(fill="both", expand=True)
+
+        self._row(body, "Emergent LLM key *", "EMERGENT_LLM_KEY",
+                  hint="Get yours at https://app.emergent.sh → Profile → Universal Key", show="*")
+        self._row(body, "Admin email *", "ADMIN_EMAIL",
+                  hint="You'll use this to log into the app.")
+        self._row(body, "Admin password *", "ADMIN_PASSWORD",
+                  hint="At least 8 characters. Store somewhere safe.", show="*")
+        self._row(body, "Practice name", "PRACTICE_NAME",
+                  hint="Displayed on PDFs and letters (optional here — can be set in Settings later).")
+        self._row(body, "Activation key", "ACTIVATION_KEY",
+                  hint="Optional. Provided by your Narrative.Rx distributor.", show="*")
+
+        # Buttons
+        btnrow = tk.Frame(self, bg="#f8f7f2")
+        btnrow.pack(fill="x", padx=28, pady=(0, 20))
+        tk.Button(
+            btnrow, text="Cancel", command=self.destroy,
+            font=("Segoe UI", 10), padx=18, pady=8, bg="#e5e2d8", relief="flat",
+        ).pack(side="right", padx=(8, 0))
+        tk.Button(
+            btnrow, text="Save & restart service", command=self.on_save,
+            font=("Segoe UI Semibold", 10), padx=18, pady=8,
+            bg="#1f3d2c", fg="#f4e7c1", relief="flat",
+        ).pack(side="right")
+
+        self.status_var = tk.StringVar(value=f"Config file: {ENV_FILE}")
+        tk.Label(
+            self, textvariable=self.status_var, bg="#f8f7f2",
+            fg="#6b6b6b", font=("Segoe UI", 8),
+        ).pack(side="bottom", anchor="w", padx=28, pady=(0, 8))
+
+    def _row(self, parent: tk.Widget, label: str, key: str,
+             hint: str = "", show: str | None = None) -> None:
+        frame = tk.Frame(parent, bg="#f8f7f2")
+        frame.pack(fill="x", pady=(0, 12))
+        tk.Label(
+            frame, text=label, bg="#f8f7f2", fg="#1f2937",
+            font=("Segoe UI Semibold", 10), anchor="w",
+        ).pack(fill="x")
+        var = tk.StringVar(value=self.env.get(key, ""))
+        entry = tk.Entry(
+            frame, textvariable=var, font=("Segoe UI", 10),
+            relief="solid", bd=1, bg="white", show=show or "",
+        )
+        entry.pack(fill="x", ipady=6, pady=(2, 2))
+        if hint:
+            tk.Label(
+                frame, text=hint, bg="#f8f7f2", fg="#6b7280",
+                font=("Segoe UI", 8), anchor="w", wraplength=520,
+            ).pack(fill="x")
+        self.vars[key] = var
+
+    def on_save(self) -> None:
+        # Preserve all keys we didn't render, then overwrite the ones we did.
+        merged = dict(self.env)
+        for k, v in self.vars.items():
+            merged[k] = v.get().strip()
+
+        # Basic validation
+        if not merged["EMERGENT_LLM_KEY"]:
+            messagebox.showerror("Missing key", "Emergent LLM key is required.")
+            return
+        if "@" not in merged["ADMIN_EMAIL"]:
+            messagebox.showerror("Bad email", "Please enter a valid admin email address.")
+            return
+        if len(merged["ADMIN_PASSWORD"]) < 8:
+            messagebox.showerror("Weak password", "Admin password must be at least 8 characters.")
+            return
+
+        try:
+            write_env(merged)
+        except PermissionError:
+            messagebox.showerror(
+                "Permission denied",
+                f"Can't write to {ENV_FILE}. Right-click this app and choose 'Run as administrator'.",
+            )
+            return
+        except Exception as e:
+            messagebox.showerror("Save failed", str(e))
+            return
+
+        self.status_var.set("Restarting service...")
+        self.update_idletasks()
+        ok, msg = restart_service()
+        if ok:
+            messagebox.showinfo(
+                "Setup complete",
+                "Narrative.Rx is configured and the service has been restarted.\n\n"
+                "Open http://localhost:8080 in your browser and log in with:\n"
+                f"   Email:    {merged['ADMIN_EMAIL']}\n"
+                f"   Password: (the one you just entered)",
+            )
+            self.destroy()
+        else:
+            messagebox.showwarning(
+                "Saved, but restart failed",
+                f"Your settings were saved to:\n{ENV_FILE}\n\n"
+                f"...but the service didn't restart automatically:\n{msg}\n\n"
+                "Open Services (services.msc) and start NarrativeRxApp manually,\n"
+                "or reboot the machine.",
+            )
+            self.status_var.set("Saved. Service restart failed — see message above.")
+
+
+def main() -> None:
+    Wizard().mainloop()
+
+
+if __name__ == "__main__":
+    main()

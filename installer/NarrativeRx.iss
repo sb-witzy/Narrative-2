@@ -55,6 +55,12 @@ Source: "payload\frontend\build\*"; DestDir: "{app}\frontend\build"; Flags: recu
 Source: "payload\nssm.exe"; DestDir: "{app}"; Flags: ignoreversion
 ; App icon (used by shortcut + uninstaller)
 Source: "payload\narrative-rx.ico"; DestDir: "{app}"; Flags: ignoreversion
+; First-run / settings wizard (Tkinter GUI compiled with PyInstaller)
+Source: "payload\firstrun.exe"; DestDir: "{app}"; Flags: ignoreversion
+; Version marker (read by backend /api/system/version)
+Source: "payload\VERSION"; DestDir: "{app}"; Flags: ignoreversion
+; Windows helper scripts (updater + backup)
+Source: "payload\windows\*"; DestDir: "{app}\windows"; Flags: recursesubdirs ignoreversion
 ; MongoDB installer (chain-installed in [Run])
 Source: "payload\mongodb-installer.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
 
@@ -66,6 +72,7 @@ Name: "{commonappdata}\NarrativeRx\logs";    Permissions: users-modify
 [Icons]
 Name: "{autoprograms}\Narrative.Rx";        Filename: "{app}\open-narrative-rx.bat"; IconFilename: "{app}\narrative-rx.ico"
 Name: "{autodesktop}\Narrative.Rx";         Filename: "{app}\open-narrative-rx.bat"; IconFilename: "{app}\narrative-rx.ico"; Tasks: desktopicon
+Name: "{autoprograms}\Narrative.Rx Settings"; Filename: "{app}\firstrun.exe"; IconFilename: "{app}\narrative-rx.ico"
 Name: "{autoprograms}\Uninstall Narrative.Rx"; Filename: "{uninstallexe}"
 
 [Tasks]
