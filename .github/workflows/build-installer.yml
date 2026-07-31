@@ -18,7 +18,7 @@ jobs:
 
     steps:
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Resolve version
         id: version
@@ -33,12 +33,12 @@ jobs:
           echo "Building version $V"
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
       - name: Set up Node 20
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "20"
 
@@ -126,7 +126,7 @@ jobs:
           Get-ChildItem installer\dist\ -Recurse
 
       - name: Upload installer as workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: NarrativeRx-Setup-${{ steps.version.outputs.version }}
           path: installer/dist/*.exe
