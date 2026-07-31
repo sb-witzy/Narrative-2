@@ -1,0 +1,118 @@
+name: Build Windows installer
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to embed in the installer (e.g. 1.0.0)"
+        required: true
+        default: "0.0.0-dev"
+
+jobs:
+  build-installer:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            V="${{ github.event.inputs.version }}"
+          else
+            V="${GITHUB_REF##*/v}"
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Building version $V"
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Enable Corepack (for yarn)
+        run: corepack enable
+
+      - name: Install Yarn
+        run: npm install -g yarn
+
+      - name: Build frontend
+        shell: bash
+        working-directory: frontend
+        run: |
+          echo "REACT_APP_BACKEND_URL=" > .env.production
+          yarn install --frozen-lockfile
+          yarn build
+
+      - name: Create backend venv + install deps
+        shell: pwsh
+        run: |
+          python -m venv installer\payload\backend\.venv
+          & installer\payload\backend\.venv\Scripts\python.exe -m pip install --upgrade pip
+          & installer\payload\backend\.venv\Scripts\python.exe -m pip install `
+              -r backend\requirements.txt `
+              --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/
+
+      - name: Assemble installer payload
+        shell: pwsh
+        run: |
+          # Backend source
+          Copy-Item -Recurse -Force -Path backend\* -Destination installer\payload\backend\ -Exclude ".env",".venv","__pycache__","tests"
+          # Frontend build
+          New-Item -ItemType Directory -Force installer\payload\frontend\build | Out-Null
+          Copy-Item -Recurse -Force -Path frontend\build\* -Destination installer\payload\frontend\build\
+          # Icon
+          Copy-Item -Force windows\branding\narrative-rx.ico installer\payload\
+          # Static payload files (open-narrative-rx.bat)
+          Copy-Item -Force installer\payload-static\* installer\payload\
+
+      - name: Download NSSM
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://nssm.cc/release/nssm-2.24.zip" -OutFile "$env:TEMP\nssm.zip"
+          Expand-Archive "$env:TEMP\nssm.zip" -DestinationPath "$env:TEMP\nssm-extract" -Force
+          Copy-Item "$env:TEMP\nssm-extract\nssm-2.24\win64\nssm.exe" installer\payload\nssm.exe
+
+      - name: Download MongoDB Community MSI
+        shell: pwsh
+        run: |
+          $mongoUrl = "https://fastdl.mongodb.org/windows/mongodb-windows-x86_64-7.0.14-signed.msi"
+          Invoke-WebRequest -Uri $mongoUrl -OutFile installer\payload\mongodb-installer.msi
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+
+      - name: Compile installer
+        shell: pwsh
+        env:
+          APP_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\NarrativeRx.iss
+          Get-ChildItem installer\dist\
+
+      - name: Upload installer as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NarrativeRx-Setup-${{ steps.version.outputs.version }}
+          path: installer/dist/*.exe
+          retention-days: 30
+
+      - name: Attach installer to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: installer/dist/*.exe
+          generate_release_notes: true

@@ -1,8 +1,29 @@
 from dotenv import load_dotenv
 from pathlib import Path
+import os as _os
 
 ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / ".env")
+
+# --- Config directory resolution ---
+# Priority:
+#   1. NARRATIVE_RX_CONFIG_DIR env var (set by the installer's service registration)
+#   2. %ProgramData%\NarrativeRx  (Windows default when installed as a native app)
+#   3. backend/.env  (dev + legacy manual installs — kept for backwards compat)
+def _resolve_config_dir():
+    explicit = _os.environ.get("NARRATIVE_RX_CONFIG_DIR")
+    if explicit:
+        p = Path(explicit)
+        if (p / ".env").exists():
+            return p
+    program_data = _os.environ.get("ProgramData")
+    if program_data:
+        p = Path(program_data) / "NarrativeRx"
+        if (p / ".env").exists():
+            return p
+    return ROOT_DIR
+
+CONFIG_DIR = _resolve_config_dir()
+load_dotenv(CONFIG_DIR / ".env")
 
 import os
 import re
