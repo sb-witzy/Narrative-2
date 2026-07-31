@@ -37,12 +37,14 @@ echo "[build-pkg] Copying frontend build..."
 mkdir -p "$PKGROOT$APP_PATH/frontend/build"
 rsync -a "$REPO_ROOT/frontend/build/" "$PKGROOT$APP_PATH/frontend/build/"
 
-# --- 3. Copy mac helper files (launchd plists, setup wizard, updater) ---
+# --- 3. Copy mac helper files (launchd plists, setup + key wizards, updater) ---
 mkdir -p "$PKGROOT$APP_PATH/mac"
 cp -R "$REPO_ROOT/installer/mac/launchd" "$PKGROOT$APP_PATH/mac/"
 cp "$REPO_ROOT/installer/mac/setup.command" "$PKGROOT$APP_PATH/mac/"
+cp "$REPO_ROOT/installer/mac/set-llm-key.command" "$PKGROOT$APP_PATH/mac/"
 cp "$REPO_ROOT/installer/mac/updater.sh" "$PKGROOT$APP_PATH/mac/" 2>/dev/null || true
 chmod +x "$PKGROOT$APP_PATH/mac/setup.command"
+chmod +x "$PKGROOT$APP_PATH/mac/set-llm-key.command"
 [ -f "$PKGROOT$APP_PATH/mac/updater.sh" ] && chmod +x "$PKGROOT$APP_PATH/mac/updater.sh"
 
 # --- 4. VERSION marker (read by /api/system/version) ---

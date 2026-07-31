@@ -195,40 +195,23 @@ for i in $(seq 1 30); do
 done
 echo
 
-# --- 8. Prompt for Emergent LLM key ---
-step "Emergent LLM key"
-echo "Narrative.Rx needs an Emergent LLM key to generate narratives."
-echo "Get yours at https://app.emergent.sh (Profile -> Universal Key)."
-echo
-read -p "Paste your Emergent LLM key (or press Enter to skip): " LLM_KEY
-if [ -n "$LLM_KEY" ]; then
-    sudo sed -i '' "s|^EMERGENT_LLM_KEY=.*|EMERGENT_LLM_KEY=$LLM_KEY|" "$ENV_FILE"
-    sudo launchctl unload "$LAUNCHD_APP" 2>/dev/null
-    sudo launchctl load "$LAUNCHD_APP"
-    echo "Saved. Service restarted."
-fi
-
-# --- 9. Done ---
+# --- 8. Done ---
 cat <<DONE
 
 ============================================================
      Setup complete
 ============================================================
 
-Narrative.Rx is now running in the background.
+Narrative.Rx dependencies are installed and the service is
+running in the background.
 
-To open the app any time:
-   * Open Applications > Narrative.Rx
-   * Or search Spotlight (Cmd+Space) for "Narrative"
-   * Or visit http://localhost:8080 in your browser
+Next: click the Narrative.Rx icon in your Applications folder
+(or search Spotlight for "Narrative"). The first time you
+click it, a small window will appear asking for your
+Emergent LLM key. After that, the app opens straight to
+http://localhost:8080.
 
-Log in with:
-   Email:    admin@dental.com
-   Password: admin123
-
-Change your password in Settings once logged in.
-
-To re-run this setup or update your LLM key later:
+To re-run this setup or fix an issue later:
    $APP_DIR/mac/setup.command
 
 Your practice activation key:
@@ -236,6 +219,6 @@ Your practice activation key:
 ============================================================
 
 DONE
-sleep 2
-open "http://localhost:8080" 2>/dev/null || true
+sleep 1
+open -a "Narrative.Rx" 2>/dev/null || open "http://localhost:8080" 2>/dev/null || true
 read -p "Press Enter to close this window..." _
