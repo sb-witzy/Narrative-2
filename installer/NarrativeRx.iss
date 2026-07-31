@@ -110,15 +110,36 @@ Filename: "netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Narr
 [Code]
 var
   LLMKeyPage: TInputQueryWizardPage;
+  ActivationKey: String;
+
+// Build "NRX-XXXX-XXXX-XXXX" — 12 alphanumeric chars (uppercase, no 0/O/1/I to
+// avoid transcription errors) in three dash-separated groups of 4.
+function GenerateActivationKey(): String;
+var
+  Alphabet: String;
+  I, N: Integer;
+  Key: String;
+begin
+  Alphabet := 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';  // 32 chars, unambiguous
+  Key := 'NRX-';
+  for I := 1 to 12 do begin
+    N := Random(Length(Alphabet)) + 1;
+    Key := Key + Copy(Alphabet, N, 1);
+    if (I = 4) or (I = 8) then Key := Key + '-';
+  end;
+  Result := Key;
+end;
 
 procedure InitializeWizard();
 begin
+  Randomize;
+  ActivationKey := GenerateActivationKey();
+
   LLMKeyPage := CreateInputQueryPage(wpSelectDir,
     'Narrative.Rx setup',
-    'Enter your keys to complete the install',
-    'You can get your Emergent LLM key from https://app.emergent.sh (Profile -> Universal Key). Paste your practice activation key too.');
+    'Enter your Emergent LLM key',
+    'You can get your Emergent LLM key from https://app.emergent.sh (Profile -> Universal Key). Your practice activation key is generated automatically and shown on the final screen.');
   LLMKeyPage.Add('Emergent LLM key:', False);
-  LLMKeyPage.Add('Practice activation key:', False);
 end;
 
 function GetLLMKey(Param: String): String;
@@ -128,7 +149,7 @@ end;
 
 function GetActivationKey(Param: String): String;
 begin
-  Result := LLMKeyPage.Values[1];
+  Result := ActivationKey;
 end;
 
 function IsMongoInstalled(): Boolean;
@@ -144,5 +165,34 @@ begin
       MsgBox('Please enter your Emergent LLM key. You can get it at https://app.emergent.sh under Profile -> Universal Key.', mbInformation, MB_OK);
       Result := False;
     end;
+  end;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  KeyFile: String;
+begin
+  if CurStep = ssPostInstall then begin
+    // Also drop a copy of the activation key at a stable path so the office
+    // can retrieve it later without digging into .env.
+    KeyFile := ExpandConstant('{commonappdata}\NarrativeRx\activation-key.txt');
+    SaveStringToFile(KeyFile, ActivationKey + #13#10, False);
+  end;
+end;
+
+// Show the generated activation key on the final wizard page so the office
+// staffer can write it down before clicking Finish.
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  if CurPageID = wpFinished then begin
+    WizardForm.FinishedLabel.Caption :=
+      'Setup completed successfully.' + #13#10 + #13#10 +
+      'Your practice activation key is:' + #13#10 + #13#10 +
+      '        ' + ActivationKey + #13#10 + #13#10 +
+      'Please note this down. It has also been saved to' + #13#10 +
+      'C:\ProgramData\NarrativeRx\activation-key.txt' + #13#10 + #13#10 +
+      'Log in at http://localhost:8080 with:' + #13#10 +
+      '   admin@dental.com  /  admin123' + #13#10 +
+      '(change the password from the Settings page once logged in)';
   end;
 end;

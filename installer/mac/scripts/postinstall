@@ -83,6 +83,14 @@ fi
 # --- 5. Seed .env if missing ---
 if [ ! -f "$ENV_FILE" ]; then
     JWT_SECRET=$("$APP_DIR/backend/.venv/bin/python" -c "import secrets; print(secrets.token_hex(32))")
+    # Auto-generate a "NRX-XXXX-XXXX-XXXX" style activation key
+    ACTIVATION_KEY=$("$APP_DIR/backend/.venv/bin/python" - <<'PY'
+import secrets
+alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+chunks = ["".join(secrets.choice(alphabet) for _ in range(4)) for _ in range(3)]
+print("NRX-" + "-".join(chunks))
+PY
+)
     cat > "$ENV_FILE" <<ENVEOF
 MONGO_URL=mongodb://localhost:27017
 DB_NAME=narrative_rx
@@ -93,11 +101,14 @@ ADMIN_EMAIL=admin@dental.com
 ADMIN_PASSWORD=admin123
 SERVE_FRONTEND=1
 MAX_CONCURRENT_LLM=3
-ACTIVATION_KEY=
+ACTIVATION_KEY=$ACTIVATION_KEY
 PRACTICE_NAME=
 ENVEOF
     chmod 600 "$ENV_FILE"
-    echo "Wrote $ENV_FILE — user must paste their Emergent LLM key via the app."
+    # Persist a copy of the activation key at a stable path for the office to reference
+    echo "$ACTIVATION_KEY" > "$APP_DIR/activation-key.txt"
+    chmod 644 "$APP_DIR/activation-key.txt"
+    echo "Wrote $ENV_FILE — activation key: $ACTIVATION_KEY"
 fi
 
 # --- 6. Install launchd services ---
