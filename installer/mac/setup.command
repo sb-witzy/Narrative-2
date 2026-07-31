@@ -109,6 +109,15 @@ export HOMEBREW_NO_INSTALL_FROM_API=1
 if ! "$BREW_BIN" tap | grep -q '^mongodb/brew$'; then
     "$BREW_BIN" tap mongodb/brew || fail "brew tap mongodb/brew failed."
 fi
+# Homebrew 4.4+ marks third-party taps as untrusted by default and
+# refuses to load their formulas until explicitly trusted.
+"$BREW_BIN" tap --repair 2>/dev/null || true
+if "$BREW_BIN" trust --help >/dev/null 2>&1; then
+    echo "Trusting mongodb/brew tap..."
+    "$BREW_BIN" trust mongodb/brew 2>/dev/null || \
+        "$BREW_BIN" trust --formula mongodb/brew/mongodb-community 2>/dev/null || \
+        echo "(brew trust step is a no-op on this Homebrew version)"
+fi
 if ! "$BREW_BIN" list mongodb-community >/dev/null 2>&1; then
     # Fully qualified name so Homebrew doesn't try the API first
     "$BREW_BIN" install mongodb/brew/mongodb-community \
