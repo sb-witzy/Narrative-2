@@ -22,6 +22,7 @@ Self-hosted native Windows Server install with:
 - **Branding** — Narrative.Rx logo everywhere: browser favicon, top nav, login/register, PDF headers, Windows shortcut icon, PWA manifest
 - **Streaming (Iter 17)** — narrative + appeal letter tokens appear word-by-word via SSE (`/generate/stream`, `/regenerate/stream`, `/appeals/stream`)
 - **Appeal outcome tracker + carrier memory (Iter 17)** — mark Won / Lost / Pending; carrier + procedure patterns endpoint; prior winning appeals are auto-injected as few-shot examples when drafting new appeals for the same (carrier, procedure_code)
+- **Windows .exe installer (Feb 2026)** — Inno Setup script + GitHub Actions workflow; `AppURL` wired to `sb-witzy/Narrative-2`; ready to tag `v1.0.0` for the first public installer release. See `/app/RELEASING.md`.
 
 ## Tech stack
 - Backend: FastAPI, MongoDB (Motor), emergentintegrations (Claude Haiku 4.5 for narratives, Claude Sonnet 4.5 for appeals), ReportLab, PyJWT, bcrypt
@@ -40,6 +41,8 @@ Self-hosted native Windows Server install with:
 - `/app/windows/create-desktop-shortcut.ps1` — per-staff-PC desktop icon installer
 
 ## Backlog (P1)
+- **macOS `.pkg` installer (v1.1.0)** — Apple Silicon only, unsigned pilot build, parallel GitHub Actions workflow that emits both `.exe` and `.pkg` on every tag (~2-3 hrs)
+- **Installer Phase 3** — first-run GUI config wizard for Emergent LLM key + admin creds (~2 hrs)
 - Nightly automatic backup via Windows Task Scheduler (~15 min)
 - Off-site backup to OneDrive (~30 min)
 - Uptime monitor + email alert (~1 hr)
