@@ -37,12 +37,12 @@ echo "[build-pkg] Copying frontend build..."
 mkdir -p "$PKGROOT$APP_PATH/frontend/build"
 rsync -a "$REPO_ROOT/frontend/build/" "$PKGROOT$APP_PATH/frontend/build/"
 
-# --- 3. Copy mac helper files (launchd plists, firstrun) ---
+# --- 3. Copy mac helper files (launchd plists, setup wizard, updater) ---
 mkdir -p "$PKGROOT$APP_PATH/mac"
 cp -R "$REPO_ROOT/installer/mac/launchd" "$PKGROOT$APP_PATH/mac/"
-cp "$REPO_ROOT/installer/mac/firstrun.command" "$PKGROOT$APP_PATH/mac/"
+cp "$REPO_ROOT/installer/mac/setup.command" "$PKGROOT$APP_PATH/mac/"
 cp "$REPO_ROOT/installer/mac/updater.sh" "$PKGROOT$APP_PATH/mac/" 2>/dev/null || true
-chmod +x "$PKGROOT$APP_PATH/mac/firstrun.command"
+chmod +x "$PKGROOT$APP_PATH/mac/setup.command"
 [ -f "$PKGROOT$APP_PATH/mac/updater.sh" ] && chmod +x "$PKGROOT$APP_PATH/mac/updater.sh"
 
 # --- 4. VERSION marker (read by /api/system/version) ---
@@ -100,25 +100,26 @@ mkdir -p "$RES_DIR"
 cat > "$RES_DIR/welcome.txt" <<'W'
 Welcome to Narrative.Rx.
 
-This installer will:
-  1. Install Homebrew (if not present)
-  2. Install python@3.12 and mongodb-community
-  3. Set up Narrative.Rx as a launchd service
-  4. Open the app at http://localhost:8080
+This installer copies the app to your Mac. When it finishes, a
+Terminal window will pop up to walk you through the one-time
+setup (Homebrew, Python 3.12, MongoDB) — you'll be asked for
+your Mac password once so the setup can install services.
 
-You'll need administrator credentials.
+If the Terminal window doesn't open automatically, double-click:
+  /Library/Application Support/NarrativeRx/mac/setup.command
 
-For Apple Silicon (M1/M2/M3) Macs, macOS 12+.
+For Apple Silicon (M1/M2/M3/M4) Macs, macOS 12+.
 W
 cat > "$RES_DIR/conclusion.txt" <<'C'
-Narrative.Rx is installed.
+Narrative.Rx files have been copied to your Mac.
 
-A Terminal window has opened so you can paste your Emergent
-LLM key. Log into the app at http://localhost:8080 once setup
-finishes.
+A Terminal window has opened to complete the interactive setup.
+Please follow the prompts in that window — it will install
+Homebrew, Python, and MongoDB (about 5 minutes), then open the
+app at http://localhost:8080.
 
-You can re-run the wizard from:
-   /Library/Application Support/NarrativeRx/mac/firstrun.command
+If you closed the Terminal window by accident, re-run:
+  /Library/Application Support/NarrativeRx/mac/setup.command
 C
 if [ -f "$REPO_ROOT/installer/EULA.txt" ]; then
     cp "$REPO_ROOT/installer/EULA.txt" "$RES_DIR/LICENSE.txt"

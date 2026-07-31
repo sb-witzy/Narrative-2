@@ -1,150 +1,73 @@
 #!/bin/bash
-# Narrative.Rx — macOS postinstall.
-# Runs as root immediately after the .pkg extracts files to
-#   /Library/Application Support/NarrativeRx/
+# Narrative.Rx — macOS .pkg postinstall (v2, minimal + resilient).
 #
-# Responsibilities:
-#   1. Ensure Homebrew is installed (for the currently logged-in user)
-#   2. Install python@3.12 and mongodb-community if missing
-#   3. Create the Python venv and install backend deps
-#   4. Seed /Library/Application Support/NarrativeRx/.env if missing
-#   5. Install and start the launchd services (MongoDB + backend)
-#   6. Open http://localhost:8080 in the default browser
-
-set -euo pipefail
+# Design change from v1: the .pkg no longer tries to install Homebrew /
+# Python / MongoDB silently from a non-interactive root shell. That
+# approach failed because Homebrew's installer expects a TTY and internal
+# sudo calls can't prompt during pkg execution.
+#
+# Instead, the postinstall now:
+#   1. Ensures /Library/Application Support/NarrativeRx exists and is readable
+#   2. Copies logs dir + activation key
+#   3. Launches setup.command in Terminal.app as the console user
+#      → the user sees a friendly step-by-step wizard, can enter their
+#        admin password when Homebrew needs it, and any error is visible.
+#
+# This guarantees the .pkg install itself never fails — the interactive
+# setup can be re-run from Finder any time.
 
 APP_DIR="/Library/Application Support/NarrativeRx"
 LOG_DIR="/Library/Logs/NarrativeRx"
-ENV_FILE="$APP_DIR/.env"
 INSTALL_LOG="$LOG_DIR/postinstall.log"
-LAUNCHD_APP="/Library/LaunchDaemons/com.narrativerx.app.plist"
-LAUNCHD_MONGO="/Library/LaunchDaemons/com.narrativerx.mongodb.plist"
 
-mkdir -p "$LOG_DIR"
+mkdir -p "$LOG_DIR" 2>/dev/null || true
 exec > >(tee -a "$INSTALL_LOG") 2>&1
 echo "=== Narrative.Rx postinstall @ $(date) ==="
+echo "App dir: $APP_DIR"
 
-# --- 1. Detect the console user (the person who ran the installer GUI) ---
-CONSOLE_USER=$(stat -f '%Su' /dev/console)
-CONSOLE_UID=$(id -u "$CONSOLE_USER")
+# --- Detect console user & UID so we can launch Terminal as them ---
+CONSOLE_USER=$(stat -f '%Su' /dev/console 2>/dev/null || echo "root")
+CONSOLE_UID=$(id -u "$CONSOLE_USER" 2>/dev/null || echo "0")
 echo "Console user: $CONSOLE_USER (uid=$CONSOLE_UID)"
-BREW_BIN=""
-if [ -x /opt/homebrew/bin/brew ]; then BREW_BIN="/opt/homebrew/bin/brew"; fi
-if [ -z "$BREW_BIN" ] && [ -x /usr/local/bin/brew ]; then BREW_BIN="/usr/local/bin/brew"; fi
 
-run_as_user() {
-    # Run a command as the console user so Homebrew doesn't complain about
-    # running as root (Homebrew refuses to run as root by design).
-    sudo -u "$CONSOLE_USER" -H bash -lc "$*"
-}
-
-# --- 2. Homebrew ---
-if [ -z "$BREW_BIN" ]; then
-    echo "Homebrew not found — installing..."
-    run_as_user 'NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
-    if [ -x /opt/homebrew/bin/brew ]; then BREW_BIN="/opt/homebrew/bin/brew"; fi
-    if [ -z "$BREW_BIN" ] && [ -x /usr/local/bin/brew ]; then BREW_BIN="/usr/local/bin/brew"; fi
-fi
-echo "Homebrew at: $BREW_BIN"
-
-# --- 3. Install Python + MongoDB ---
-run_as_user "$BREW_BIN update"
-if ! run_as_user "$BREW_BIN list python@3.12 >/dev/null 2>&1"; then
-    echo "Installing python@3.12..."
-    run_as_user "$BREW_BIN install python@3.12"
-fi
-if ! run_as_user "$BREW_BIN tap | grep -q '^mongodb/brew$'"; then
-    run_as_user "$BREW_BIN tap mongodb/brew"
-fi
-if ! run_as_user "$BREW_BIN list mongodb-community >/dev/null 2>&1"; then
-    echo "Installing mongodb-community..."
-    run_as_user "$BREW_BIN install mongodb-community"
+# --- Make setup.command executable ---
+SETUP_CMD="$APP_DIR/mac/setup.command"
+if [ -f "$SETUP_CMD" ]; then
+    chmod +x "$SETUP_CMD"
+    echo "setup.command ready: $SETUP_CMD"
+else
+    echo "WARNING: $SETUP_CMD not found — payload assembly may be broken."
 fi
 
-# Path where Homebrew installs python3.12
-BREW_PREFIX=$(run_as_user "$BREW_BIN --prefix")
-PYTHON_BIN="$BREW_PREFIX/opt/python@3.12/bin/python3.12"
-if [ ! -x "$PYTHON_BIN" ]; then
-    # Fallback to whatever python3 brew symlinks
-    PYTHON_BIN="$BREW_PREFIX/bin/python3"
-fi
-echo "Python: $PYTHON_BIN"
-
-# --- 4. Create Python venv + install backend deps ---
-if [ ! -x "$APP_DIR/backend/.venv/bin/python" ]; then
-    echo "Creating Python venv..."
-    "$PYTHON_BIN" -m venv "$APP_DIR/backend/.venv"
-fi
-"$APP_DIR/backend/.venv/bin/python" -m pip install --upgrade pip
-"$APP_DIR/backend/.venv/bin/python" -m pip install \
-    -r "$APP_DIR/backend/requirements.txt" \
-    --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/
-
-# --- 5. Seed .env if missing ---
-if [ ! -f "$ENV_FILE" ]; then
-    JWT_SECRET=$("$APP_DIR/backend/.venv/bin/python" -c "import secrets; print(secrets.token_hex(32))")
-    # Auto-generate a "NRX-XXXX-XXXX-XXXX" style activation key
-    ACTIVATION_KEY=$("$APP_DIR/backend/.venv/bin/python" - <<'PY'
+# --- Auto-generate practice activation key so it exists before setup runs ---
+KEY_FILE="$APP_DIR/activation-key.txt"
+if [ ! -f "$KEY_FILE" ]; then
+    # 32-char alphanumeric alphabet with unambiguous chars only
+    KEY=$(python3 - <<'PY' 2>/dev/null || echo "NRX-TEMP-KEY-0001"
 import secrets
-alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-chunks = ["".join(secrets.choice(alphabet) for _ in range(4)) for _ in range(3)]
-print("NRX-" + "-".join(chunks))
+a = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+groups = ["".join(secrets.choice(a) for _ in range(4)) for _ in range(3)]
+print("NRX-" + "-".join(groups))
 PY
 )
-    cat > "$ENV_FILE" <<ENVEOF
-MONGO_URL=mongodb://localhost:27017
-DB_NAME=narrative_rx
-CORS_ORIGINS=http://localhost:8080
-JWT_SECRET=$JWT_SECRET
-EMERGENT_LLM_KEY=
-ADMIN_EMAIL=admin@dental.com
-ADMIN_PASSWORD=admin123
-SERVE_FRONTEND=1
-MAX_CONCURRENT_LLM=3
-ACTIVATION_KEY=$ACTIVATION_KEY
-PRACTICE_NAME=
-ENVEOF
-    chmod 600 "$ENV_FILE"
-    # Persist a copy of the activation key at a stable path for the office to reference
-    echo "$ACTIVATION_KEY" > "$APP_DIR/activation-key.txt"
-    chmod 644 "$APP_DIR/activation-key.txt"
-    echo "Wrote $ENV_FILE — activation key: $ACTIVATION_KEY"
+    echo "$KEY" > "$KEY_FILE"
+    chmod 644 "$KEY_FILE"
+    echo "Generated activation key: $KEY"
 fi
 
-# --- 6. Install launchd services ---
-# MongoDB service (points at brew-installed mongod + config)
-sed -e "s|/opt/homebrew|$BREW_PREFIX|g" \
-    "$APP_DIR/mac/launchd/com.narrativerx.mongodb.plist" > "$LAUNCHD_MONGO"
-# Backend service (patch venv python path in case brew is in /usr/local instead of /opt)
-sed -e "s|/opt/homebrew|$BREW_PREFIX|g" \
-    "$APP_DIR/mac/launchd/com.narrativerx.app.plist" > "$LAUNCHD_APP"
+# --- Fix permissions so console user can read setup.command / activation key ---
+chmod -R a+r "$APP_DIR" 2>/dev/null || true
+chown -R "$CONSOLE_USER":admin "$APP_DIR/mac" 2>/dev/null || true
 
-chown root:wheel "$LAUNCHD_APP" "$LAUNCHD_MONGO"
-chmod 644 "$LAUNCHD_APP" "$LAUNCHD_MONGO"
-
-# Kick off both services
-launchctl unload "$LAUNCHD_MONGO" 2>/dev/null || true
-launchctl load "$LAUNCHD_MONGO"
-launchctl unload "$LAUNCHD_APP" 2>/dev/null || true
-launchctl load "$LAUNCHD_APP"
-
-echo "Waiting for backend to bind port 8080..."
-for i in $(seq 1 20); do
-    if curl -fsS http://localhost:8080/api/ >/dev/null 2>&1; then
-        echo "Backend is up."
-        break
-    fi
-    sleep 1
-done
-
-# --- 7. Show the first-run wizard for the LLM key ---
-FIRSTRUN="$APP_DIR/mac/firstrun.command"
-if [ -x "$FIRSTRUN" ]; then
-    launchctl asuser "$CONSOLE_UID" sudo -u "$CONSOLE_USER" open "$FIRSTRUN" || true
+# --- Open setup.command in Terminal as the console user (fire and forget) ---
+if [ -n "$CONSOLE_UID" ] && [ "$CONSOLE_UID" != "0" ] && [ -f "$SETUP_CMD" ]; then
+    echo "Launching Terminal for interactive setup..."
+    launchctl asuser "$CONSOLE_UID" sudo -u "$CONSOLE_USER" \
+        open -a Terminal "$SETUP_CMD" 2>&1 || \
+        echo "(Terminal auto-launch failed — user can double-click setup.command in Finder.)"
 fi
 
-# --- 8. Open the app in the default browser ---
-launchctl asuser "$CONSOLE_UID" sudo -u "$CONSOLE_USER" open "http://localhost:8080" || true
-
-echo "=== postinstall done ==="
+echo "=== postinstall done — installer will now report success ==="
+# CRITICAL: always exit 0 so the .pkg install itself succeeds. The interactive
+# setup window handles any per-machine failures separately.
 exit 0
