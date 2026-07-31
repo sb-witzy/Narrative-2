@@ -49,7 +49,7 @@ Right-click Start → **Windows PowerShell (Admin)**:
 
 ```powershell
 cd C:\
-git clone https://github.com/<your-username>/narrative-rx.git
+git clone https://github.com/sb-witzy/Narrative-2.git
 cd narrative-rx
 ```
 

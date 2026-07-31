@@ -33,7 +33,7 @@ GitHub Actions (see `.github/workflows/build-installer.yml`) will:
 - Attach `NarrativeRx-Setup-1.0.0.exe` to the **GitHub Release** page for that tag
 
 Users then download from:
-`https://github.com/YOUR-USERNAME/narrative-rx/releases/latest`
+`https://github.com/sb-witzy/Narrative-2/releases/latest`
 
 ## Building locally (optional)
 
@@ -57,6 +57,5 @@ Only needed if you want to test installer changes before pushing:
 ## What still needs to be done (Phase 3+)
 
 - Publisher name in `NarrativeRx.iss` currently reads `"Narrative.Rx"` — replace with your registered publisher name if you have one
-- `AppURL` currently points to `YOUR-USERNAME/narrative-rx` — update to your actual GitHub org/repo
 - Activation key validation logic (currently accepts any string) — will be added in the next phase
 - In-app auto-updater — not included in this phase (users download new .exe manually)

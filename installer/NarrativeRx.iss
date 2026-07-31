@@ -18,7 +18,7 @@
 #if AppVersion == ""
   #define AppVersion   "0.0.0-dev"
 #endif
-#define AppURL         "https://github.com/YOUR-USERNAME/narrative-rx"
+#define AppURL         "https://github.com/sb-witzy/Narrative-2"
 #define AppExe         "NarrativeRx"
 
 [Setup]
