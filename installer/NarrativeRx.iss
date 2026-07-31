@@ -114,18 +114,21 @@ var
 
 // Build "NRX-XXXX-XXXX-XXXX" — 12 alphanumeric chars (uppercase, no 0/O/1/I to
 // avoid transcription errors) in three dash-separated groups of 4.
-// Uses a linear congruential generator seeded from GetTickCount, because
-// Inno Setup Pascal Script does not expose the Randomize procedure and
-// bare Random() would return the same sequence on every install.
+// Uses a LCG seeded from GetDateTimeString('yyyymmddhhnnsszzz', ...), because
+// Inno Setup Pascal Script exposes neither Randomize nor GetTickCount.
 function GenerateActivationKey(): String;
 var
-  Alphabet: String;
+  Alphabet, TimeStr: String;
   I, N: Integer;
   Seed: Cardinal;
   Key: String;
 begin
   Alphabet := 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';  // 32 chars, unambiguous
-  Seed := GetTickCount();
+  // 17-digit timestamp with millisecond precision, no separators.
+  TimeStr := GetDateTimeString('yyyymmddhhnnsszzz', #0, #0);
+  Seed := 0;
+  for I := 1 to Length(TimeStr) do
+    Seed := Seed * 31 + Cardinal(Ord(TimeStr[I]));
   Key := 'NRX-';
   for I := 1 to 12 do begin
     // Numerical Recipes / glibc LCG constants — wraps modulo 2^32
