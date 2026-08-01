@@ -1,0 +1,39 @@
+{
+  "summary": "Iter 18 backend regression + new /api/system/* endpoint testing complete. Backend unit tests: 10/10 pass (backend_iter18_test.py — installer detection, semver parsing, GitHub asset picker for win/darwin, version endpoint field presence). Live integration tests: 10/10 pass (backend_iter18_live_test.py) via REACT_APP_BACKEND_URL. Verified: (a) GET /api/system/version (requires auth) returns is_installer_build=false, is_git_repo=true, version='0.0.0-dev', github_repo='sb-witzy/Narrative-2', plus commit/branch/platform. (b) POST /api/system/check-updates in dev mode returns HTTP 502 with detail (git remote missing) — does NOT crash to 500. (c) POST /api/system/update on Linux returns HTTP 400 with detail 'Self-update in git mode is only supported on Windows. Run `./windows/update.bat` manually.' (d) Both endpoints correctly return 401 unauthenticated. (e) Regression: /api/auth/login+/me, /api/history, /api/appeals/patterns, /api/generate (D2740 with tags stripped), /api/appeals (with denial_reason), PATCH /api/appeals/{id} outcome — all still 200. (f) YAML validation: both .github/workflows/build-installer.yml and build-installer-mac.yml parse cleanly via PyYAML safe_load. No backend regressions detected from the installer/updater refactor.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/system/version", "issue": "Requires authentication (returns 401 anonymously). Not a bug per se, but if the Settings.jsx page is intended to show version on a public/login screen or before auth, this would block it. Confirm intent — current behavior matches Depends(get_current_user)."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/backend_iter18_test.py",
+    "/app/backend/tests/backend_iter18_live_test.py",
+    "/app/test_reports/pytest/iter18_results.xml",
+    "/app/test_reports/pytest/iter18_live_results.xml"
+  ],
+  "action_items": [
+    "(Optional) Decide whether /api/system/version should be public — currently gated behind get_current_user. If Settings.jsx only calls it post-login this is fine.",
+    "server.py is now ~1192 lines (up from 882 last iter). The 700-line split threshold is well exceeded; splitting into routers/ modules is overdue but non-blocking.",
+    "The Windows installer NSSM-via-Chocolatey change and Pascal-script activation key generation cannot be exercised in this container — must be verified by pushing to GitHub Actions windows-latest runner (out of scope per user request)."
+  ],
+  "critical_code_review_comments": [
+    "server.py `_is_installer_build()` correctly requires BOTH (a) absence of .git AND (b) a non-dev VERSION file value. This prevents accidental installer-mode detection in dev environments. Good defensive logic.",
+    "server.py `_parse_semver()` strips 'v' prefix and pre-release suffix — reasonable simplification, but note that '1.0.0-rc2' and '1.0.0-rc1' compare equal. If prerelease ordering ever matters, packaging.version.Version would be a safer choice.",
+    "server.py `_github_latest_release()` selects asset by sys.platform ('win32' -> .exe, 'darwin' -> .pkg). No fallback if neither found — will raise KeyError on 'asset_url'. Consider a graceful 502/'no compatible asset' path.",
+    "server.py `system_update` returns 400 with clear cross-platform guidance. Good UX.",
+    "server.py `system_check_updates` in dev/git mode returns 502 when `git ls-remote` fails; this is the correct signal (upstream unreachable) and matches spec. Message includes stderr — verify no sensitive info (e.g., internal tokens) is echoed in the detail; current path uses `_git()` which returns plain rc/stdout so likely safe.",
+    "YAML: both build-installer.yml and build-installer-mac.yml parse valid. The Chocolatey NSSM step change is syntactically correct — actual runtime verification requires GitHub Actions runner.",
+    "server.py total ~1192 lines — split threshold (700) exceeded by a wide margin. Recommend splitting /api/system/* into routers/system.py, /api/appeals/* into routers/appeals.py on the next iteration to improve maintainability."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_iter18_live_test.py (new)"
+  ],
+  "success_rate": {"backend": "100% (20/20: 10 unit + 10 live)", "frontend": "not tested (backend-only request)"},
+  "test_credentials": "admin@dental.com / admin123 (seeded, verified via login+me)",
+  "seed_data_creation": "Generated 3 TEST_iter18 narratives (D2740, D2950) and 1 appeal (outcome=pending) under admin user. No data cleanup because appeals PATCH sets outcome back to pending; narratives remain in admin history but tagged with TEST_iter18 in clinical_findings.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "New /api/system/* endpoints all require auth (Depends(get_current_user)). /api/system/version returns dict with keys: is_installer_build, version, is_git_repo, github_repo, commit, commit_short, branch, commit_date, commit_message, platform, repo_root. In dev: is_installer_build=false, is_git_repo=true, version='0.0.0-dev'. /api/system/check-updates -> 502 in dev mode (no git remote). /api/system/update -> 400 on Linux. /api/appeals now REQUIRES denial_reason field (422 without it). YAML workflow changes (Chocolatey NSSM install) can only be verified by pushing to GitHub Actions windows-latest — not testable in this container. server.py is 1192 lines; split into routers is recommended but not blocking."
+}
