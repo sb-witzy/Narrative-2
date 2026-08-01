@@ -19,12 +19,11 @@ if [ ! -x "$VENV_PYTHON" ] && [ -x "$SETUP_CMD" ]; then
     exit 0
 fi
 
-# State 2: dependencies installed but no LLM key -> quick key prompt
-NEEDS_KEY=1
-if [ -f "$ENV_FILE" ] && grep -qE '^EMERGENT_LLM_KEY=..+' "$ENV_FILE" 2>/dev/null; then
-    NEEDS_KEY=0
-fi
-if [ "$NEEDS_KEY" = "1" ] && [ -x "$KEY_CMD" ]; then
+# State 2: dependencies installed but no LLM key -> quick key prompt.
+# We check for a world-readable marker file (created by set-llm-key.command)
+# because .env itself is chmod 600 (root only) and this launcher runs as
+# the console user.
+if [ ! -f "$APP_DIR/.llm-key-set" ] && [ -x "$KEY_CMD" ]; then
     open -a Terminal "$KEY_CMD"
     exit 0
 fi

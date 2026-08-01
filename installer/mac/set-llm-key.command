@@ -46,6 +46,11 @@ fi
 echo
 echo "Saving key and restarting service (you may be asked for your Mac password)..."
 sudo sed -i '' "s|^EMERGENT_LLM_KEY=.*|EMERGENT_LLM_KEY=$LLM_KEY|" "$ENV_FILE"
+# Drop a world-readable marker so the Narrative.Rx.app launcher (running
+# as the console user, without sudo) can tell the key has been set without
+# needing to read the root-only .env file.
+sudo touch "$APP_DIR/.llm-key-set"
+sudo chmod 644 "$APP_DIR/.llm-key-set"
 sudo launchctl unload "$LAUNCHD_APP" 2>/dev/null
 sudo launchctl load "$LAUNCHD_APP"
 
