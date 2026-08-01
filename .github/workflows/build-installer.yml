@@ -95,12 +95,22 @@ jobs:
           # Write VERSION so the running backend can advertise its version
           Set-Content -NoNewline -Path installer\payload\VERSION -Value "${{ steps.version.outputs.version }}"
 
-      - name: Download NSSM
+      - name: Install NSSM via Chocolatey
         shell: pwsh
         run: |
-          Invoke-WebRequest -Uri "https://nssm.cc/release/nssm-2.24.zip" -OutFile "$env:TEMP\nssm.zip"
-          Expand-Archive "$env:TEMP\nssm.zip" -DestinationPath "$env:TEMP\nssm-extract" -Force
-          Copy-Item "$env:TEMP\nssm-extract\nssm-2.24\win64\nssm.exe" installer\payload\nssm.exe
+          # nssm.cc has been unreliable (503s in Feb 2026); pull from Choco instead.
+          choco install nssm -y --no-progress
+          $nssmExe = "$env:ChocolateyInstall\lib\NSSM\tools\nssm.exe"
+          if (-not (Test-Path $nssmExe)) {
+            # Chocolatey sometimes places it under bin/ instead of lib/NSSM/tools
+            $nssmExe = "$env:ChocolateyInstall\bin\nssm.exe"
+          }
+          if (-not (Test-Path $nssmExe)) {
+            throw "nssm.exe not found after choco install (looked in `$env:ChocolateyInstall\lib\NSSM\tools and \bin)"
+          }
+          Copy-Item $nssmExe installer\payload\nssm.exe -Force
+          Write-Host "Copied NSSM from: $nssmExe"
+          Get-Item installer\payload\nssm.exe | Select-Object Name, Length
 
       - name: Download MongoDB Community MSI
         shell: pwsh
