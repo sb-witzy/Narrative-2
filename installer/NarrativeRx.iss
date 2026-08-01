@@ -55,6 +55,9 @@ Source: "payload\frontend\build\*"; DestDir: "{app}\frontend\build"; Flags: recu
 Source: "payload\nssm.exe"; DestDir: "{app}"; Flags: ignoreversion
 ; App icon (used by shortcut + uninstaller)
 Source: "payload\narrative-rx.ico"; DestDir: "{app}"; Flags: ignoreversion
+; Desktop / Start Menu launcher script (pops firstrun.exe if LLM key missing,
+; else opens http://localhost:8080). Referenced by shortcuts + [Run] section.
+Source: "payload\open-narrative-rx.bat"; DestDir: "{app}"; Flags: ignoreversion
 ; First-run / settings wizard (Tkinter GUI compiled with PyInstaller)
 Source: "payload\firstrun.exe"; DestDir: "{app}"; Flags: ignoreversion
 ; Version marker (read by backend /api/system/version)
